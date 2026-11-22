@@ -1,0 +1,15 @@
+<Project>
+  <!--
+    Next-il: one place for the versions every project here builds against, matching our other plugins.
+    CounterStrikeSharp 1.0.374 is the floor: it ships lib/net10.0 only, and it is the release that added
+    CCSCustomHudLayout, which PanoramaManager drives the HUDs through.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <CounterStrikeSharpVersion>1.0.374</CounterStrikeSharpVersion>
+    <!-- CI passes -p:Version=N.0.0 so every release bumps the RanksApi assembly version, as VipCoreApi does. -->
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+</Project>

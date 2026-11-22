@@ -1,19 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <Nullable>enable</Nullable>
-    </PropertyGroup>
-
     <ItemGroup>
-      <PackageReference Include="CounterStrikeSharp.API" Version="1.0.329" />
-      <PackageReference Include="Dapper" Version="2.1.35" />
-      <PackageReference Include="MySqlConnector" Version="2.3.6" />
+        <PackageReference Include="CounterStrikeSharp.API" Version="$(CounterStrikeSharpVersion)" />
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\..\RanksApi\RanksApi.csproj" />
+        <ProjectReference Include="..\..\RanksApi\RanksApi.csproj">
+            <Private>false</Private>
+        </ProjectReference>
     </ItemGroup>
 
 </Project>

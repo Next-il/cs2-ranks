@@ -25,3 +25,8 @@ Ranks/Modules/ignore/
 *addons/
 
 Ranks_/
+# Next-il
+hud/previews/assets/
+.build/
+out/
+hud/previews/*.preview.html

@@ -31,7 +31,7 @@ public class RanksFakeRank : BasePlugin
         {
             var filter = new RecipientFilter();
             foreach (var player in Utilities.GetPlayers()
-                         .Where(u => u is { IsValid: true, Connected: PlayerConnectedState.PlayerConnected, IsBot: false, IsHLTV: false }))
+                         .Where(u => u is { IsValid: true, Connected: PlayerConnectedState.Connected, IsBot: false, IsHLTV: false }))
             {
                 sbyte rankType;
                 int rankValue;

@@ -1,0 +1,1074 @@
+<title>Ranks HUD Previews</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<style>
+/*
+  Review page for the Next-il/cs2-ranks HUDs. One 1920x1080 "screen" scaled to fit, with a stand-in CS2 HUD
+  drawn on a real CS2 map shot, and the three new panels on top. The panels are drawn the way the Panorama
+  layouts will be built: fixed panels, text written into slots, state carried by classes, bars as clip steps.
+  Single dark look on purpose - it is a game HUD review, and the stage is always dark.
+*/
+:root {
+  --page: #0b0e12;
+  --chrome: #12161c;
+  --chrome-2: #181d25;
+  --line: #ffffff12;
+  --fg: #e7eaee;
+  --muted: #8b939c;
+  --faint: #5c646d;
+  --gold: #f0a531;
+  --red: #e8543f;
+  --green: #4caf6d;
+  --ct: #5b9bd5;
+  --t: #e0b44a;
+  --f-body: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --f-cond: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--page); color: var(--fg); }
+body {
+  font-family: var(--f-body);
+  font-size: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+.page { max-width: 1440px; margin: 0 auto; }
+
+/* ------------------------------------------------------------ page chrome */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 14px; }
+.top h1 { font-family: var(--f-cond); font-weight: 700; font-size: 28px; letter-spacing: .5px; margin: 0; text-transform: uppercase; }
+.top h1 span { color: var(--gold); }
+.top p { margin: 4px 0 0; color: var(--muted); font-size: 13px; max-width: 70ch; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tabs a {
+  font-family: var(--f-cond); font-weight: 600; font-size: 15px; letter-spacing: 1px; text-transform: uppercase;
+  color: var(--muted); text-decoration: none; padding: 8px 14px; background: var(--chrome);
+  border-bottom: 2px solid transparent; transition: color .2s, background-color .2s, border-color .2s; cursor: pointer;
+}
+.tabs a:hover { color: var(--fg); background: var(--chrome-2); }
+.tabs a[aria-current="page"] { color: var(--fg); border-bottom-color: var(--gold); }
+.tabs a:focus-visible, button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+.work { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+@media (min-width: 1100px) { .work { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; } }
+
+.side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.group { background: var(--chrome); padding: 12px 12px 14px; }
+.group h3 { margin: 0 0 8px; font-family: var(--f-mono); font-size: 10.5px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg button, .act {
+  font-family: var(--f-cond); font-weight: 600; font-size: 14px; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--fg); background: var(--chrome-2); border: 0; padding: 7px 10px; cursor: pointer;
+  transition: background-color .2s, color .2s;
+}
+.seg button:hover, .act:hover { background: #222833; }
+.seg button[aria-pressed="true"] { background: var(--gold); color: #14110a; }
+.acts { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.act { text-align: left; padding: 9px 10px; }
+.act small { display: block; font-family: var(--f-body); font-weight: 400; font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--muted); margin-top: 2px; }
+.act.wide { grid-column: 1 / -1; }
+.notes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; color: #c4c9cf; font-size: 13px; line-height: 1.45; }
+.notes li { padding-left: 12px; position: relative; }
+.notes li::before { content: ""; position: absolute; left: 0; top: .6em; width: 5px; height: 5px; background: var(--gold); }
+.notes b { color: var(--fg); font-weight: 600; }
+.caption { color: var(--muted); font-size: 12.5px; margin: 8px 0 0; line-height: 1.45; }
+.hidden-view { display: none !important; }
+
+/* ------------------------------------------------------------ stage */
+.stage-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; max-width: 100%; overflow: hidden; background: #000; }
+.stage {
+  position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0;
+  transform: scale(var(--k, .5)); overflow: hidden; font-family: var(--f-body); color: #fff;
+  transition: transform .35s ease-out;
+}
+.zoom-btn {
+  position: absolute; right: 10px; bottom: 10px; z-index: 5; font-family: var(--f-cond); font-weight: 700; font-size: 13px;
+  letter-spacing: 1px; text-transform: uppercase; color: #fff; background: #0b0e12d0; border: 0; padding: 7px 11px; cursor: pointer;
+  transition: background-color .2s;
+}
+.zoom-btn:hover { background: #0b0e12; }
+.zoom-btn[aria-pressed="true"] { background: var(--gold); color: #14110a; }
+.bg { position: absolute; inset: 0; background: #2a2a2a center / cover no-repeat; transition: filter .6s; }
+.stage.is-dead .bg { filter: saturate(.85) brightness(.92); }
+
+/* ---- stand-in CS2 HUD. Kept faint on purpose: it is there for placement, not to be judged. */
+.cs { position: absolute; font-family: var(--f-cond); }
+.cs-radar { left: 14px; top: 14px; width: 272px; height: 272px; background: #0b0f12b8; border: 1px solid #ffffff22; }
+.cs-radar svg { width: 100%; height: 100%; display: block; }
+.cs-money { left: 22px; top: 296px; font-size: 26px; font-weight: 600; color: #d9f0c8; letter-spacing: .5px; }
+.cs-money span { color: #8fd16a; margin-right: 4px; }
+.cs-score { left: 50%; top: 10px; transform: translateX(-50%); display: flex; align-items: stretch; gap: 3px; }
+.cs-score div { background: #0b0f12c4; padding: 4px 16px; font-size: 30px; font-weight: 700; display: flex; align-items: center; }
+.cs-score .ct { color: var(--ct); }
+.cs-score .t { color: var(--t); }
+.cs-score .clock { font-size: 26px; min-width: 96px; justify-content: center; color: #fff; }
+.cs-feed { right: 16px; top: 74px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.cs-feed div { display: flex; align-items: center; gap: 10px; background: #000000a6; padding: 4px 12px; font-size: 21px; font-weight: 600; }
+.cs-feed div.mine { box-shadow: inset 0 0 0 2px #c2272dcc; }
+.cs-feed img { height: 22px; }
+.cs-feed .ct { color: var(--ct); } .cs-feed .t { color: var(--t); }
+.cs-hp { left: 22px; bottom: 18px; display: flex; gap: 26px; font-size: 44px; font-weight: 700; align-items: baseline; }
+.cs-hp small { font-size: 18px; color: #ffffffb0; margin-right: 6px; font-weight: 600; }
+.cs-ammo { right: 26px; bottom: 18px; font-size: 44px; font-weight: 700; display: flex; gap: 16px; align-items: center; }
+.cs-ammo small { font-size: 24px; color: #ffffffb0; }
+.cs-ammo img { height: 34px; opacity: .9; }
+.cs-chat { left: 22px; bottom: 120px; display: flex; flex-direction: column; gap: 3px; font-family: var(--f-body); font-size: 17px; text-shadow: 0 1px 2px #000; }
+.cs-chat .t { color: var(--t); font-weight: 600; }
+.cs-cross { left: 50%; top: 50%; width: 0; height: 0; }
+.cs-cross i { position: absolute; background: #4ef05a; box-shadow: 0 0 0 1px #00000080; }
+.cs-cross i:nth-child(1) { left: -14px; top: -1px; width: 9px; height: 2px; }
+.cs-cross i:nth-child(2) { left: 5px; top: -1px; width: 9px; height: 2px; }
+.cs-cross i:nth-child(3) { left: -1px; top: -14px; width: 2px; height: 9px; }
+.cs-cross i:nth-child(4) { left: -1px; top: 5px; width: 2px; height: 9px; }
+.cs-spec { left: 50%; bottom: 22px; transform: translateX(-50%); width: 560px; background: #0b0f12cc; padding: 10px 18px 12px; text-align: center; }
+.cs-spec .lbl { font-family: var(--f-mono); font-size: 13px; letter-spacing: 2px; color: #ffffff90; text-transform: uppercase; }
+.cs-spec .who { font-size: 30px; font-weight: 700; color: var(--t); margin-top: 2px; }
+.cs-spec .hpbar { height: 5px; background: #ffffff1f; margin-top: 8px; }
+.cs-spec .hpbar i { display: block; height: 100%; width: 64%; background: #e8e8e8; }
+.alive-only, .dead-only { transition: opacity .3s; }
+.stage.is-dead .alive-only { opacity: 0; }
+.stage:not(.is-dead) .dead-only { opacity: 0; }
+
+/* ============================================================ the new HUDs
+   Sizes are 1080p pixels, the same numbers the Panorama stylesheets will carry. */
+
+/* shared card - same shell as the live MVP card and /music panel (hud_shared .hud-card) */
+.card {
+  background: linear-gradient(#12171ee2, #0b0f14ec);
+  /* stands in for hud_shared .hud-card world-blur: gaussian(8.0) */
+  -webkit-backdrop-filter: blur(9px); backdrop-filter: blur(9px);
+  border-left: 3px solid var(--gold);
+}
+.mono { font-family: var(--f-mono); }
+.sg { background: center / contain no-repeat; }
+
+/* ------------------------------------------------------------ rank panel */
+.rp-pos { position: absolute; pointer-events: none; }
+.rp-pos.pos-radar  { left: 18px; top: 352px; }
+.rp-pos.pos-right  { right: 24px; top: 0; bottom: 0; display: flex; align-items: center; }
+.rp-pos.pos-bottom { left: 0; right: 0; bottom: 132px; display: flex; justify-content: center; }
+.rp-scale { transition: transform .2s ease-out; }
+.pos-radar  .rp-scale { transform-origin: 0 0; }
+.pos-right  .rp-scale { transform-origin: 100% 50%; }
+.pos-bottom .rp-scale { transform-origin: 50% 100%; }
+.size-s .rp-scale { transform: scale(.85); }
+.size-m .rp-scale { transform: scale(1); }
+.size-l .rp-scale { transform: scale(1.2); }
+
+.rp {
+  width: 360px; opacity: 0;
+  transition: opacity .26s ease-out, transform .26s ease-out;
+}
+.pos-radar  .rp { transform: translateX(-440px); }
+.pos-right  .rp { transform: translateX(460px); }
+.pos-bottom .rp { transform: translateY(380px); }
+.rp.show { opacity: 1; transform: none; }
+
+.rp-head { display: flex; align-items: center; padding: 11px 16px 0; }
+.rp-eyebrow { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; flex: 1; }
+/* Ranks on one line, current left and next right, with the skewed bar under them at full width and the
+   XP count centred under the bar. No box around a rank; the name sits small on the icon's bottom line. */
+.rp-prog { display: flex; flex-direction: column; padding: 10px 16px 12px; }
+.rp-ranks { display: flex; justify-content: space-between; align-items: flex-end; }
+.rp-rank { display: flex; align-items: flex-end; gap: 5px; flex: none; }
+.rp-icon { width: 46px; height: 19px; flex: none; }
+.rp-rname { font-family: var(--f-cond); font-weight: 700; font-size: 11.5px; line-height: 1; letter-spacing: .6px; text-transform: uppercase; color: #fff; max-width: 90px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 1px; }
+.rp-rank.next .rp-rname { color: var(--muted); }
+.rp-rank.next .rp-icon { filter: saturate(.2); opacity: .55; }
+.rp.maxed .rp-rank.next .rp-icon { display: none; }
+.rp.maxed .rp-rank.next .rp-rname { color: var(--gold); }
+.rp-bar { position: relative; height: 10px; margin: 9px 3px 0; transform: skewX(-24deg); }
+.rp-xp { margin-top: 5px; text-align: center; font-family: var(--f-cond); font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .3px; white-space: nowrap; }
+.rp-xp b { color: #c9ced4; font-weight: 700; }
+.segs { position: absolute; inset: 0; display: flex; gap: 3px; }
+.segs i { flex: 1; background: #ffffff17; }
+.segs.fill { clip-path: inset(0 calc(100% - var(--p, 0%)) 0 0); transition: clip-path .7s cubic-bezier(.2,.7,.2,1); }
+.segs.fill i { background: var(--gold); }
+
+.rp-sep { height: 1px; background: #ffffff10; margin: 0 16px; }
+.rp-bonus { padding: 10px 16px 11px; display: flex; flex-direction: column; gap: 6px; }
+.rp-bonus-head { display: flex; align-items: center; margin-bottom: 1px; }
+.rp-bonus-head .rp-eyebrow { flex: 1; }
+.rp-total { font-family: var(--f-cond); font-weight: 700; font-size: 15px; color: var(--muted); letter-spacing: .3px; }
+.rp-total.on { color: var(--gold); }
+.rp-total .max { font-family: var(--f-mono); font-size: 9px; font-weight: 700; color: #14110a; background: var(--gold); padding: 1px 4px; margin-left: 5px; vertical-align: 2px; letter-spacing: .5px; }
+/* Every item on the row is centred on the row's middle line (vertical-align: center on each label in
+   Panorama). line-height 1 keeps a smaller label's box from riding low. */
+.rp-b { display: flex; align-items: center; gap: 8px; height: 19px; }
+.rp-b > * { line-height: 1; }
+.rp-b .hint { display: flex; align-items: center; height: 19px; }
+.rp-b .dot { width: 6px; height: 6px; background: #ffffff26; flex: none; transition: background-color .2s; }
+.rp-b .name { font-size: 13px; color: var(--muted); transition: color .2s; }
+.rp-b .hint { font-size: 11px; color: var(--faint); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-b .val { font-size: 12px; color: var(--faint); }
+.rp-b.on .dot { background: var(--gold); }
+.rp-b.on .name { color: #fff; }
+.rp-b.on .val { font-family: var(--f-cond); font-weight: 700; font-size: 15px; color: var(--gold); }
+.rp-b .soon { font-family: var(--f-mono); font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--muted); background: #ffffff10; padding: 2px 6px; }
+.rp-foot { display: flex; gap: 6px; align-items: baseline; padding: 9px 16px 11px; }
+.rp-foot .cmd { font-family: var(--f-mono); font-size: 11px; font-weight: 700; color: var(--gold); }
+.rp-foot .txt { font-size: 11.5px; color: var(--muted); }
+
+/* rank up inside the panel: the current icon flashes as it swaps */
+@keyframes rp-swap { 0% { filter: brightness(3); transform: scale(1.35); } 100% { filter: brightness(1); transform: scale(1); } }
+.rp-icon.cur.swap-a { animation: rp-swap .55s ease-out; }
+.rp-icon.cur.swap-b { animation: rp-swap2 .55s ease-out; }
+@keyframes rp-swap2 { 0% { filter: brightness(3); transform: scale(1.35); } 100% { filter: brightness(1); transform: scale(1); } }
+
+/* ------------------------------------------------------------ XP feed */
+/*
+  Toast model, as ToastService does it: a line keeps its slot for its whole life. It slides in from off
+  the screen on its own side with a fade and a blur, and "show" coming off sends it back out the same way.
+  Then the slot collapses and the lines below it glide up - in Panorama that is the slot's
+  transition-property: position, which a collapse next to it fires.
+*/
+.xf { position: absolute; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+.xf.pos-right { right: 26px; top: 430px; align-items: flex-end; }
+.xf.pos-cross { left: calc(50% + 44px); top: calc(50% + 58px); align-items: flex-start; }
+.xf-slot.hidden { display: none; }
+.xf-row {
+  display: flex; align-items: center; height: 31px; padding: 0 11px 0 10px;
+  background: #0b0f14bd; border-left: 2px solid #ffffff59;
+  opacity: 0; filter: blur(7px); transform: translateX(var(--from, 420px));
+  transition: opacity .26s ease-out, transform .3s cubic-bezier(.2,.8,.25,1), filter .26s ease-out;
+}
+.xf.pos-right .xf-row { --from: 420px; }
+.xf.pos-cross .xf-row { --from: 70px; }
+/* Entry is quicker than the exit: the transition on the state being entered is the one that plays. */
+.xf-row.show { opacity: 1; filter: blur(0); transform: none; transition-duration: .14s, .17s, .14s; }
+.xf-row.bonus { border-left-color: var(--gold); }
+.xf-row.loss, .xf-row.note { height: 25px; border-left-color: var(--red); }
+.xf-row.note { border-left-color: #ffffff59; }
+.xf-orig { display: none; font-family: var(--f-cond); font-size: 15px; font-weight: 600; color: var(--muted); text-decoration: line-through; text-decoration-thickness: 1.5px; margin-right: 7px; }
+.xf-row.bonus .xf-orig { display: inline; }
+.xf-amt { font-family: var(--f-cond); font-size: 21px; font-weight: 700; color: #fff; letter-spacing: .2px; }
+.xf-row.bonus .xf-amt { color: var(--gold); }
+.xf-row.loss .xf-amt { font-size: 15px; color: var(--red); }
+.xf-unit { font-family: var(--f-cond); font-size: 13px; font-weight: 600; color: var(--muted); margin-left: 3px; margin-top: 3px; }
+.xf-row.bonus .xf-unit { color: #c7892a; }
+.xf-row.loss .xf-unit { font-size: 11px; color: #b4503f; margin-top: 1px; }
+.xf-chip { display: none; font-family: var(--f-mono); font-size: 10.5px; font-weight: 700; color: #14110a; background: var(--gold); padding: 2px 5px 1px; margin-left: 8px; letter-spacing: .3px; }
+.xf-row.bonus .xf-chip { display: inline; }
+.xf-chip .max { margin-left: 4px; font-size: 8.5px; opacity: .75; }
+.xf-tag { display: none; font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); margin-left: 9px; }
+.xf-row.loss .xf-tag, .xf-row.note .xf-tag, .xf-row.tagged .xf-tag { display: inline; }
+.xf-row.note .xf-tag { margin-left: 0; color: #d6dbe0; font-size: 10px; }
+.xf-row.note .xf-tag b { color: var(--gold); font-weight: 700; }
+.xf-row.note .xf-amt, .xf-row.note .xf-unit { display: none; }
+.xf-ics { display: flex; gap: 7px; margin-left: 11px; align-items: center; }
+.xf-ic { height: 17px; background: center / contain no-repeat; display: none; opacity: .95; }
+.xf-ic.on { display: block; }
+.ic-hs { width: 19px; background-image: url(assets/dn/icon_headshot.svg); }
+.ic-wb { width: 19px; background-image: url(assets/dn/penetrate.svg); }
+.ic-ns { width: 19px; background-image: url(assets/dn/noscope.svg); }
+.ic-bl { width: 19px; background-image: url(assets/dn/blind_kill.svg); }
+.ic-sm { width: 19px; background-image: url(assets/dn/smoke_kill.svg); }
+.ic-kn { width: 34px; background-image: url(assets/dn/knife.svg); }
+.ic-sk { width: 14px; height: 14px; background-image: url(assets/dn/icon_suicide.svg); opacity: .8; margin-left: 2px; }
+.xf-row.loss .xf-ics { margin-left: 8px; }
+.xf-row.rankdown { border-left-color: var(--red); }
+.xf-row.rankdown .xf-tag b { color: #ff8a78; font-weight: 700; }
+
+/* ------------------------------------------------------------ RANK UP moment */
+.ru {
+  position: absolute; left: 50%; top: 226px; width: 640px; margin-left: -320px; padding: 14px 0 18px;
+  display: flex; flex-direction: column; align-items: center; pointer-events: none;
+  background: radial-gradient(closest-side, #0b0f14d9, #0b0f1499 55%, #0b0f1400);
+  opacity: 0; transform: translateY(-14px); transition: opacity .25s ease-out, transform .25s ease-out;
+}
+.ru.show { opacity: 1; transform: none; }
+.ru.out { opacity: 0; transform: translateY(-10px); transition-duration: .45s; }
+.ru-eyebrow { display: flex; align-items: center; gap: 12px; font-family: var(--f-cond); font-weight: 700; font-size: 22px; letter-spacing: 6px; color: var(--gold); padding-left: 6px; text-transform: uppercase; }
+.ru-eyebrow i { width: 46px; height: 2px; background: var(--gold); }
+.ru-icon { width: 178px; height: 72px; margin-top: 12px; }
+.ru-name { font-family: var(--f-cond); font-weight: 700; font-size: 34px; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 8px; color: #fff; }
+.ru-from { font-size: 14px; color: #b9c0c7; margin-top: 2px; display: flex; gap: 8px; align-items: center; }
+.ru-from .arrow { color: var(--gold); }
+@keyframes ru-icon { 0% { transform: scale(1.6); opacity: 0; filter: brightness(4); } 55% { transform: scale(.96); opacity: 1; filter: brightness(1.6); } 100% { transform: scale(1); filter: brightness(1); } }
+@keyframes ru-glint { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.7); } }
+@keyframes ru-line { 0% { width: 0; } 100% { width: 46px; } }
+.ru.show .ru-icon { animation: ru-icon .6s cubic-bezier(.2,.8,.2,1) both, ru-glint .9s ease-in-out 1.1s 1; }
+.ru.show .ru-eyebrow i { animation: ru-line .5s ease-out .15s both; }
+
+/* ------------------------------------------------------------ /rank menu */
+.rm-pos { position: absolute; left: 0; right: 0; top: 0; bottom: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.rm { width: 760px; pointer-events: auto; opacity: 0; transform: translateY(28px); transition: opacity .16s ease-out, transform .16s ease-out; }
+.rm.show { opacity: 1; transform: none; }
+.rm-head { display: flex; align-items: center; height: 48px; padding: 0 16px; border-bottom: 1px solid #ffffff0f; }
+.rm-title { font-family: var(--f-cond); font-weight: 600; font-size: 19px; letter-spacing: 1.8px; text-transform: uppercase; }
+.rm-tag { font-family: var(--f-mono); font-size: 11px; color: #61686f; text-transform: uppercase; margin-left: 12px; flex: 1; letter-spacing: .5px; }
+.rm-x { width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; color: #9aa2ac; font-size: 12px; cursor: pointer; transition: background-color .1s; }
+.rm-x:hover { background: #e0432f; color: #fff; }
+.rm-tabs { position: relative; display: flex; height: 40px; border-bottom: 1px solid #ffffff0f; }
+.rm-tab { width: 150px; display: flex; align-items: center; justify-content: center; font-family: var(--f-cond); font-weight: 600; font-size: 14px; letter-spacing: 1.4px; text-transform: uppercase; color: #8a929b; cursor: pointer; transition: background-color .12s, color .12s; }
+.rm-tab:hover { background: #ffffff0a; }
+.rm-tab.active { color: #fff; }
+.rm-bar { position: absolute; left: 0; bottom: -1px; width: 150px; height: 2px; background: var(--gold); transition: transform .2s ease-out; }
+.rm-bar.at-1 { transform: translateX(150px); } .rm-bar.at-2 { transform: translateX(300px); } .rm-bar.at-3 { transform: translateX(450px); }
+.rm-body { height: 404px; padding: 18px 20px 16px; overflow: hidden; }
+.rm-page { display: none; }
+.rm-page.active { display: block; }
+.rm-foot { display: flex; gap: 22px; padding: 10px 16px 12px; border-top: 1px solid #ffffff0f; font-family: var(--f-mono); font-size: 10px; color: #4f565e; text-transform: uppercase; letter-spacing: .5px; }
+.rm-foot b { color: var(--gold); font-weight: 600; }
+
+/* overview */
+.ov-top { display: flex; gap: 22px; align-items: center; }
+.ov-icon { width: 172px; height: 70px; flex: none; }
+.ov-main { flex: 1; min-width: 0; }
+.ov-name-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.ov-name { font-family: var(--f-cond); font-weight: 700; font-size: 30px; letter-spacing: 1px; text-transform: uppercase; line-height: 1; }
+.ov-chip { font-family: var(--f-mono); font-size: 10px; font-weight: 700; color: #14110a; background: var(--gold); padding: 2px 6px; letter-spacing: .3px; }
+.ov-pos { margin-left: auto; font-family: var(--f-cond); font-size: 15px; color: var(--muted); font-weight: 600; }
+.ov-pos b { color: #fff; font-weight: 700; }
+.ov-xp { margin-top: 12px; display: flex; align-items: baseline; gap: 8px; font-size: 12px; color: var(--muted); }
+.ov-xp .n { font-family: var(--f-cond); font-weight: 700; font-size: 13px; color: #fff; }
+.ov-xp .togo { margin-left: auto; }
+.ov-bar { position: relative; height: 14px; margin: 6px 4px 0; transform: skewX(-24deg); }
+.ov-ends { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--f-cond); font-weight: 600; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.ov-ends .a { color: #fff; }
+.ov-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 22px; }
+.st { background: #ffffff08; padding: 11px 14px 12px; }
+.st .k { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.st .v { font-family: var(--f-cond); font-weight: 700; font-size: 27px; margin-top: 3px; letter-spacing: .3px; }
+.st .v small { font-size: 15px; color: var(--muted); font-weight: 600; margin-left: 2px; }
+.st.wide { grid-column: span 2; }
+.ov-bhead { display: flex; align-items: baseline; margin-top: 18px; font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); }
+.ov-bhead b { margin-left: auto; font-family: var(--f-cond); font-size: 15px; letter-spacing: .3px; color: var(--muted); text-transform: none; }
+.ov-bhead b.on { color: var(--gold); }
+.ov-bonus { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 7px; }
+.ob { background: #ffffff05; padding: 9px 12px; display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.ob .k { font-size: 12.5px; color: var(--muted); }
+.ob .v { font-size: 11.5px; color: var(--faint); }
+.ob.on { box-shadow: inset 2px 0 0 var(--gold); }
+.ob.on .k { color: #fff; }
+.ob.on .v { font-family: var(--f-cond); font-weight: 700; font-size: 15px; color: var(--gold); }
+.ob .soon { font-family: var(--f-mono); font-size: 8.5px; font-weight: 700; letter-spacing: 1px; color: var(--muted); background: #ffffff10; padding: 2px 5px; }
+
+/* top players */
+.tp-head, .tp-row { display: grid; grid-template-columns: 44px 64px minmax(0, 1fr) 64px 96px; align-items: center; column-gap: 10px; padding: 0 12px; }
+.tp-head { height: 22px; font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--faint); }
+.tp-head .c-kd, .tp-head .c-xp, .tp-row .c-kd, .tp-row .c-xp { text-align: right; }
+.tp-list { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.tp-row { height: 29px; background: #ffffff06; }
+.tp-row:nth-child(odd) { background: #ffffff0a; }
+.tp-row .c-pos { font-family: var(--f-mono); font-size: 12px; font-weight: 700; color: var(--muted); }
+.tp-row.p1 .c-pos, .tp-row.p2 .c-pos, .tp-row.p3 .c-pos { color: var(--gold); }
+.tp-row .c-rank { width: 46px; height: 19px; background: center / contain no-repeat; }
+.tp-row .c-name { font-size: 13.5px; color: #e6e9ec; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-row .c-kd { font-family: var(--f-cond); font-weight: 600; font-size: 14px; color: var(--muted); }
+.tp-row .c-xp { font-family: var(--f-cond); font-weight: 700; font-size: 15px; color: #fff; letter-spacing: .3px; }
+.tp-row.me { background: #f0a5311a; box-shadow: inset 2px 0 0 var(--gold); }
+#tp_me { margin-top: 8px; height: 32px; }
+.tp-row.me .c-pos { color: var(--gold); }
+.tp-row.me .c-name { color: #fff; font-weight: 600; }
+.tp-row .c-name small { font-family: var(--f-mono); font-size: 9px; font-weight: 700; color: #14110a; background: var(--gold); padding: 1px 4px; margin-left: 7px; letter-spacing: .5px; vertical-align: 1px; }
+.tp-row.me.hidden { display: none; }
+
+/* all ranks */
+.ar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
+.ar { background: #ffffff07; height: 89px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+.ar .sg { width: 62px; height: 25px; }
+.ar .n { font-family: var(--f-cond); font-weight: 600; font-size: 13.5px; letter-spacing: .4px; text-transform: uppercase; margin-top: 7px; color: #dfe3e7; }
+.ar .x { font-family: var(--f-mono); font-size: 10px; color: var(--muted); margin-top: 1px; }
+.ar.locked .sg { filter: saturate(.15); opacity: .45; }
+.ar.locked .n { color: #7d858e; }
+.ar.locked .x { color: #59616a; }
+.ar.cur { background: #f0a5311f; box-shadow: inset 0 0 0 1px #f0a53199; }
+.ar.cur .n { color: var(--gold); }
+.ar .you { position: absolute; top: 5px; right: 6px; font-family: var(--f-mono); font-size: 8.5px; font-weight: 700; color: #14110a; background: var(--gold); padding: 1px 4px; letter-spacing: .5px; display: none; }
+.ar.cur .you { display: block; }
+
+/* settings */
+.se { display: flex; gap: 22px; }
+.se-rows { flex: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.se-row .k { font-family: var(--f-cond); font-weight: 600; font-size: 15px; letter-spacing: .8px; text-transform: uppercase; color: #fff; }
+.se-row .d { font-size: 12px; color: var(--muted); margin-top: 1px; }
+.se-opts { display: flex; gap: 4px; margin-top: 7px; }
+.se-opt { height: 30px; padding: 0 14px; display: flex; align-items: center; justify-content: center; background: #ffffff0a; font-family: var(--f-cond); font-weight: 600; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: #aab1b9; cursor: pointer; transition: background-color .12s, color .12s; }
+.se-opt:hover { background: #ffffff16; color: #fff; }
+.se-opt.on { background: #f0a53129; color: var(--gold); box-shadow: inset 0 -2px 0 var(--gold); }
+.se-opts.disabled { opacity: .35; }
+.se-mini { width: 236px; flex: none; }
+.se-mini .k { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted); margin-bottom: 7px; }
+.mini { position: relative; width: 236px; height: 133px; background: #ffffff0a; overflow: hidden; }
+.mini .radar { position: absolute; left: 4px; top: 4px; width: 33px; height: 33px; background: #ffffff1a; }
+.mini .xhair { position: absolute; left: 116px; top: 64px; width: 4px; height: 4px; background: #4ef05a99; }
+.mini .blk { position: absolute; background: var(--gold); opacity: .9; transition: all .2s ease-out; }
+.mini .blk.pos-radar  { left: 4px; top: 45px; }
+.mini .blk.pos-right  { right: 4px; top: 50%; transform: translateY(-50%); }
+.mini .blk.pos-bottom { left: 50%; bottom: 17px; transform: translateX(-50%); }
+.mini .blk.size-s { width: 36px; height: 27px; } .mini .blk.size-m { width: 42px; height: 32px; } .mini .blk.size-l { width: 50px; height: 38px; }
+.mini .blk.off { opacity: 0; }
+.mini .lbl { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-family: var(--f-mono); font-size: 9px; color: var(--faint); letter-spacing: .6px; text-transform: uppercase; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001s !important; transition-duration: .001s !important; }
+}
+</style>
+
+<div class="page">
+  <header class="top">
+    <div>
+      <h1>Ranks <span>HUD</span> previews</h1>
+      <p>Drafts for the Next-il ranks fork. A 1080p screen on Mirage with a stand-in CS2 HUD. Click the buttons on the side to play each case. Fonts here stand in for CS2's own; sizes, timing and colors are what the layouts will use.</p>
+    </div>
+    <nav class="tabs" aria-label="Previews">
+      <a href="#panel" data-view="panel">Rank panel</a>
+      <a href="#feed" data-view="feed">XP feed</a>
+      <a href="#bonuses" data-view="bonuses">Panel bonuses</a>
+      <a href="#menu" data-view="menu">/rank menu</a>
+    </nav>
+  </header>
+
+  <div class="work">
+    <div>
+      <div class="stage-wrap" id="wrap">
+        <button class="zoom-btn" id="zoom" aria-pressed="false">Zoom 2x</button>
+        <div class="stage is-dead" id="stage">
+          <div class="bg" id="bg"></div>
+
+          <!-- stand-in CS2 HUD -->
+          <div class="cs cs-radar">
+            <svg viewBox="0 0 272 272" aria-hidden="true">
+              <g fill="none" stroke="#ffffff2e" stroke-width="10" stroke-linejoin="round">
+                <path d="M30 210 L30 120 L90 120 L90 60 L180 60 L180 30 L240 30 L240 140 L200 140 L200 220 L120 220 L120 250 L60 250 L60 210 Z"/>
+                <path d="M90 120 L150 120 L150 180 L200 180"/>
+              </g>
+              <circle cx="136" cy="136" r="5" fill="#f0f0f0"/>
+              <circle cx="182" cy="96" r="4" fill="#e0b44a"/>
+              <circle cx="70" cy="190" r="4" fill="#e0b44a"/>
+              <circle cx="214" cy="60" r="4" fill="#e0b44a"/>
+            </svg>
+          </div>
+          <div class="cs cs-money"><span>$</span>3,250</div>
+          <div class="cs cs-score"><div class="ct">7</div><div class="clock" id="clock">1:24</div><div class="t">5</div></div>
+          <div class="cs cs-feed">
+            <div class="mine"><span class="t">kobi</span><img src="assets/dn/ak47.svg" alt=""><img src="assets/dn/icon_headshot.svg" alt=""><span class="ct">shadow</span></div>
+            <div><span class="ct">ruby.</span><img src="assets/dn/awp.svg" alt=""><span class="t">kobi</span></div>
+          </div>
+          <div class="cs cs-chat">
+            <div><span class="t">nova</span>: rotate B</div>
+            <div><span class="t">yuval</span>: 1 left, low</div>
+          </div>
+          <div class="cs cs-cross alive-only"><i></i><i></i><i></i><i></i></div>
+          <div class="cs cs-hp alive-only"><div><small>HP</small>100</div><div><small>AR</small>100</div></div>
+          <div class="cs cs-ammo alive-only"><img src="assets/dn/ak47.svg" alt=""><div>30 <small>/ 90</small></div></div>
+          <div class="cs cs-spec dead-only"><div class="lbl">Spectating</div><div class="who">nova</div><div class="hpbar"><i></i></div></div>
+
+          <!-- ===== rank panel ===== -->
+          <div class="rp-pos pos-radar size-m" id="rp_pos">
+            <div class="rp-scale">
+              <div class="rp card" id="rp">
+                <div class="rp-head">
+                  <div class="rp-eyebrow" data-var="rp_eyebrow">Rank</div>
+                </div>
+                <div class="rp-prog">
+                  <div class="rp-ranks">
+                    <div class="rp-rank cur"><div class="rp-icon cur sg" id="rp_icon_cur"></div><div class="rp-rname" data-var="rp_cur">Nova III</div></div>
+                    <div class="rp-rank next"><div class="rp-rname" data-var="rp_next">Nova Master</div><div class="rp-icon next sg" id="rp_icon_next"></div></div>
+                  </div>
+                  <div class="rp-bar">
+                    <div class="segs"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                    <div class="segs fill" id="rp_fill"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                  </div>
+                  <div class="rp-xp"><b data-var="rp_xp_now">1,240</b> <span data-var="rp_xp_need">/ 1,700 XP</span></div>
+                </div>
+                <div class="rp-sep"></div>
+                <div class="rp-bonus">
+                  <div class="rp-bonus-head">
+                    <div class="rp-eyebrow">Active XP bonuses</div>
+                    <div class="rp-total" id="rp_total"><span data-var="rp_total">x1.0</span><span class="max" id="rp_total_max" hidden>MAX</span></div>
+                  </div>
+                  <div class="rp-b" id="rp_b_vip"><i class="dot"></i><span class="name">VIP</span><span class="hint" data-var="rp_vip_hint"></span><span class="val" data-var="rp_vip">Not active</span></div>
+                  <div class="rp-b" id="rp_b_name"><i class="dot"></i><span class="name">Name reward</span><span class="hint" data-var="rp_name_hint">"Next" in your name</span><span class="val" data-var="rp_name">Not active</span></div>
+                  <div class="rp-b" id="rp_b_boost"><i class="dot"></i><span class="name">XP booster</span><span class="hint"></span><span class="soon">Coming soon</span></div>
+                  <div class="rp-b" id="rp_b_wknd"><i class="dot"></i><span class="name">Weekend x1.5</span><span class="hint" data-var="rp_wknd_hint">Fri - Sat</span><span class="val" data-var="rp_wknd">Not active</span></div>
+                </div>
+                <div class="rp-sep"></div>
+                <div class="rp-foot"><span class="cmd">/xp</span><span class="txt" data-var="rp_foot">turns the XP feed off</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ===== XP feed, newest on top ===== -->
+          <div class="xf pos-right" id="xf"></div>
+
+          <!-- ===== RANK UP ===== -->
+          <div class="ru" id="ru">
+            <div class="ru-eyebrow"><i></i><span>Rank up</span><i></i></div>
+            <div class="ru-icon sg" id="ru_icon"></div>
+            <div class="ru-name" data-var="ru_name">Nova Master</div>
+            <div class="ru-from"><span data-var="ru_old">Nova III</span><span class="arrow">&#x2192;</span><span data-var="ru_new">Nova Master</span></div>
+          </div>
+
+          <!-- ===== /rank menu ===== -->
+          <div class="rm-pos">
+            <div class="rm card" id="rm">
+              <div class="rm-head">
+                <div class="rm-title">Rank</div>
+                <div class="rm-tag" data-var="rm_tag">Retakes</div>
+                <div class="rm-x" id="rm_close" role="button" aria-label="Close">&#x2715;</div>
+              </div>
+              <div class="rm-tabs">
+                <div class="rm-tab active" data-tab="0">Overview</div>
+                <div class="rm-tab" data-tab="1">Top players</div>
+                <div class="rm-tab" data-tab="2">All ranks</div>
+                <div class="rm-tab" data-tab="3">Settings</div>
+                <div class="rm-bar" id="rm_bar"></div>
+              </div>
+              <div class="rm-body">
+                <div class="rm-page active" data-page="0">
+                  <div class="ov-top">
+                    <div class="ov-icon sg" id="ov_icon"></div>
+                    <div class="ov-main">
+                      <div class="ov-name-row">
+                        <div class="ov-name" data-var="ov_name">Nova III</div>
+                        <div class="ov-chip" id="ov_chip" data-var="ov_chip">XP x2.3</div>
+                        <div class="ov-pos">#<b data-var="ov_pos">1,204</b> of <span data-var="ov_total">18,350</span></div>
+                      </div>
+                      <div class="ov-xp"><span class="n" data-var="ov_xp">1,240 XP</span><span class="togo" data-var="ov_togo">460 XP to Nova Master</span></div>
+                      <div class="ov-bar">
+                        <div class="segs"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                        <div class="segs fill" id="ov_fill"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                      </div>
+                      <div class="ov-ends"><span class="a" data-var="ov_from">Nova III &middot; 1,000</span><span data-var="ov_to">Nova Master &middot; 1,700</span></div>
+                    </div>
+                  </div>
+                  <div class="ov-stats">
+                    <div class="st"><div class="k">Kills</div><div class="v">1,482</div></div>
+                    <div class="st"><div class="k">Deaths</div><div class="v">1,103</div></div>
+                    <div class="st"><div class="k">K/D</div><div class="v">1.34</div></div>
+                    <div class="st"><div class="k">Headshot %</div><div class="v">48<small>%</small></div></div>
+                    <div class="st"><div class="k">Assists</div><div class="v">311</div></div>
+                    <div class="st"><div class="k">Rounds won</div><div class="v">642</div></div>
+                    <div class="st wide"><div class="k">Playtime</div><div class="v">41<small>h</small> 12<small>m</small></div></div>
+                  </div>
+                  <div class="ov-bhead">Active XP bonuses<b id="ob_total" data-var="ob_total">x1.0</b></div>
+                  <div class="ov-bonus">
+                    <div class="ob" id="ob_vip"><span class="k">VIP</span><span class="v" data-var="rp_vip">Not active</span></div>
+                    <div class="ob" id="ob_name"><span class="k">Name reward</span><span class="v" data-var="rp_name">Not active</span></div>
+                    <div class="ob"><span class="k">XP booster</span><span class="soon">Soon</span></div>
+                    <div class="ob" id="ob_wknd"><span class="k">Weekend x1.5</span><span class="v" data-var="rp_wknd">Not active</span></div>
+                  </div>
+                </div>
+                <div class="rm-page" data-page="1">
+                  <div class="tp-head"><span class="c-pos">#</span><span class="c-rank">Rank</span><span class="c-name">Player</span><span class="c-kd">K/D</span><span class="c-xp">XP</span></div>
+                  <div class="tp-list" id="tp_list"></div>
+                  <div class="tp-row me" id="tp_me"></div>
+                </div>
+                <div class="rm-page" data-page="2"><div class="ar-grid" id="ar_grid"></div></div>
+                <div class="rm-page" data-page="3">
+                  <div class="se">
+                    <div class="se-rows">
+                      <div class="se-row"><div class="k">XP feed</div><div class="d">XP after each kill, next to the crosshair. Same as /xp.</div>
+                        <div class="se-opts" data-set="feed"><div class="se-opt" data-v="on">On</div><div class="se-opt" data-v="off">Off</div></div></div>
+                      <div class="se-row"><div class="k">Rank panel</div><div class="d">Your rank and active bonuses.</div>
+                        <div class="se-opts" data-set="mode"><div class="se-opt" data-v="off">Off</div><div class="se-opt" data-v="dead">While dead</div><div class="se-opt" data-v="always">Always</div></div></div>
+                      <div class="se-row"><div class="k">Placement</div>
+                        <div class="se-opts" data-set="pos"><div class="se-opt" data-v="radar">Under radar</div><div class="se-opt" data-v="right">Right</div><div class="se-opt" data-v="bottom">Bottom</div></div></div>
+                      <div class="se-row"><div class="k">Size</div>
+                        <div class="se-opts" data-set="size"><div class="se-opt" data-v="s">S</div><div class="se-opt" data-v="m">M</div><div class="se-opt" data-v="l">L</div></div></div>
+                    </div>
+                    <div class="se-mini">
+                      <div class="k">Where it shows</div>
+                      <div class="mini"><div class="radar"></div><div class="xhair"></div><div class="blk pos-radar size-m" id="mini_blk"></div><div class="lbl" id="mini_lbl">While dead</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="rm-foot"><span><b>/xp</b> XP feed on/off</span><span><b>/top</b> top players</span><span><b>/rank</b> this menu</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="caption" id="stage_caption"></p>
+    </div>
+
+    <aside class="side">
+      <!-- ===== Rank panel controls ===== -->
+      <div data-for="panel">
+        <div class="group"><h3>Placement</h3><div class="seg" data-ctl="pos"><button data-v="radar">Under radar</button><button data-v="right">Right center</button><button data-v="bottom">Bottom center</button></div></div>
+      </div>
+      <div data-for="panel bonuses">
+        <div class="group"><h3>Size</h3><div class="seg" data-ctl="size"><button data-v="s">S</button><button data-v="m">M</button><button data-v="l">L</button></div></div>
+      </div>
+      <div data-for="panel">
+        <div class="group"><h3>Player</h3><div class="seg" data-ctl="life"><button data-v="dead">Dead</button><button data-v="always">Alive, mode Always</button><button data-v="whiledead">Alive, mode While dead</button></div></div>
+        <div class="group"><h3>Progress</h3><div class="seg" data-ctl="prog"><button data-v="mid">Nova III, 34%</button><button data-v="near">Nova III, 99%</button><button data-v="max">Max rank</button></div></div>
+        <div class="group"><h3>Play</h3><div class="acts">
+          <button class="act" data-run="die">Die again<small>Slides in, bar fills from spawn XP</small></button>
+          <button class="act" data-run="rankup">Rank up<small>While the panel is up</small></button>
+        </div></div>
+        <div class="group"><h3>To decide</h3><ul class="notes">
+          <li><b>Default placement.</b> Under the radar is my pick: it sits below the money and clears the chat.</li>
+          <li><b>Bottom center</b> sits above the spectator bar. The MVP card's own bottom slot would overlap it, but the MVP card defaults to top.</li>
+          <li><b>Right center</b> shares the spot with the MVP card when a server sets that card to right.</li>
+          <li><b>Default size M.</b> S and L scale the whole panel, text included.</li>
+        </ul></div>
+      </div>
+
+      <!-- ===== XP feed controls ===== -->
+      <div data-for="feed">
+        <div class="group"><h3>Play a case</h3><div class="acts">
+          <button class="act" data-run="streak">3-kill streak<small>No bonus</small></button>
+          <button class="act" data-run="streakvip">Same streak<small>VIP x1.3 on</small></button>
+          <button class="act" data-run="cap">Bonus cap hit<small>SUPREME + name + weekend</small></button>
+          <button class="act" data-run="death">Death<small>XP lost, never multiplied</small></button>
+          <button class="act" data-run="assist">Assist<small>x2.3 on: +1 becomes +2</small></button>
+          <button class="act" data-run="knife">Knife kill<small>Weapon bonus part</small></button>
+          <button class="act" data-run="feedrankup">Rank up<small>A kill crosses Nova Master</small></button>
+          <button class="act" data-run="rankdown">Rank down<small>A death drops a rank</small></button>
+          <button class="act wide" data-run="xpoff">/xp typed<small>The feed says it is off, then stays quiet</small></button>
+        </div></div>
+        <div class="group"><h3>Feed position</h3><div class="seg" data-ctl="feedpos"><button data-v="right">Right side</button><button data-v="cross">Under the crosshair</button></div></div>
+        <div class="group"><h3>To decide</h3><ul class="notes">
+          <li><b>One line per kill.</b> Kill, headshot, wallbang and the rest are summed, the bonus is applied once, then rounded.</li>
+          <li><b>Colors.</b> Normal XP is white. Boosted XP is gold with the old amount struck out and the multiplier chip, shown only when the bonus changed the amount (x1.3 on 1 XP rounds back to 1). Lost XP is small and red.</li>
+          <li><b>Like the toasts.</b> Each line slides in from off the screen with a fade and blur, stays 3 seconds, and slides back out. New lines join at the bottom, 5 at most; when one leaves, the rest glide up.</li>
+          <li><b>Rank down</b> is one quiet red line, no banner. Rank up gets the banner, placed under the MVP card's top slot.</li>
+          <li><b>Position.</b> Right side by default, under the kill feed. Under the crosshair is the other option.</li>
+        </ul></div>
+      </div>
+
+      <!-- ===== Bonuses controls ===== -->
+      <div data-for="bonuses">
+        <div class="group"><h3>Presets</h3><div class="acts">
+          <button class="act" data-run="b-none">None active<small>Total x1.0</small></button>
+          <button class="act" data-run="b-all">All active<small>VIP + name + weekend</small></button>
+          <button class="act wide" data-run="b-cap">SUPREME + name + weekend<small>1 + 1.0 + 0.5 + 0.5 = x3.0, the cap</small></button>
+        </div></div>
+        <div class="group"><h3>VIP group</h3><div class="seg" data-ctl="vip"><button data-v="none">None</button><button data-v="vip">VIP x1.3</button><button data-v="premium">PREMIUM x1.5</button><button data-v="supreme">SUPREME x2</button></div></div>
+        <div class="group"><h3>Name reward</h3><div class="seg" data-ctl="namer"><button data-v="on">"Next" in name</button><button data-v="off">No</button></div></div>
+        <div class="group"><h3>Weekend</h3><div class="seg" data-ctl="wknd"><button data-v="on">Friday, active</button><button data-v="off">Tuesday, not active</button></div></div>
+        <div class="group"><h3>To decide</h3><ul class="notes">
+          <li><b>Bonuses add up:</b> total = 1 + each bonus's extra part, capped at x3.0 (config MaxMultiplier).</li>
+          <li><b>The total</b> sits top right of the list. At the cap it gets a MAX tag.</li>
+          <li><b>Name reward hint.</b> While it is off, the row says how to get it.</li>
+          <li><b>XP booster</b> only shows "Coming soon" for now.</li>
+        </ul></div>
+      </div>
+
+      <!-- ===== Menu controls ===== -->
+      <div data-for="menu">
+        <div class="group"><h3>Tabs</h3><div class="seg" data-ctl="tab"><button data-v="0">Overview</button><button data-v="1">Top players</button><button data-v="2">All ranks</button><button data-v="3">Settings</button></div>
+          <p class="caption">The menu itself is clickable too: tabs, the X, and every setting.</p></div>
+        <div class="group"><h3>Player</h3><div class="seg" data-ctl="mprog"><button data-v="mid">Nova III</button><button data-v="max">Almighty, max</button></div></div>
+        <div class="group"><h3>Play</h3><div class="acts"><button class="act" data-run="menuopen">Type /rank<small>Opens on Overview</small></button><button class="act" data-run="topopen">Type /top<small>Same menu, on Top players</small></button></div></div>
+        <div class="group"><h3>To decide</h3><ul class="notes">
+          <li><b>All ranks</b> uses the server mode's own ranks.json, so Deathmatch shows its own list.</li>
+          <li><b>Settings</b> are saved per player in MySQL and follow them to every server.</li>
+          <li><b>/top</b> opens this same menu on Top players: the top 10 of this server mode, with your own place pinned under the list when you are not in it.</li>
+          <li><b>0 - 24 XP is called "None"</b> in ranks.json but the scoreboard already shows Silver I there. Drop "None" so the name matches?</li>
+          <li><b>Almighty shows the Mythic icon</b> on the scoreboard today: ranks_fakerank.json stops at 23. One line fixes it.</li>
+        </ul></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ------------------------------------------------------------------ data (Retakes ranks.json, as deployed)
+  const RANKS = [["None",0],["Silver I",0],["Silver II",25],["Silver III",75],["Silver IV",175],["SE",275],["SEM",375],
+    ["Nova I",500],["Nova II",625],["Nova III",1000],["Nova Master",1700],["MG I",2500],["MG II",3700],["MGE",5250],
+    ["DMG",7000],["LE",10000],["LEM",20000],["Supreme",30000],["Global",50000],["Immortal",75000],["Master",100000],
+    ["Legend",200000],["Mythic",300000],["Almighty",500000]];
+  // Icon = ranks_fakerank.json map (rank N -> skillgroup N-1): CS2's own 0-18, the workshop addon's 19-23.
+  const icon = i => `url(assets/sg/skillgroup${i}.svg)`;
+  const VIP = { none: 0, vip: .3, premium: .5, supreme: 1 };
+  const VIPNAME = { vip: "VIP", premium: "PREMIUM", supreme: "SUPREME" };
+  const CAP = 3.0;
+  const EXP = { kill: 3, death: -2, assist: 1, hs: 1, ns: 1, bl: 1, sm: 1, wb: 2, knife: 2 };
+  const fmt = n => n.toLocaleString("en-US");
+  const xmul = m => "x" + (Math.round(m * 10) / 10).toFixed(1);
+  // Round half away from zero - C#'s Math.Round needs MidpointRounding.AwayFromZero to match.
+  const round = v => Math.sign(v) * Math.round(Math.abs(v));
+
+  const S = {
+    view: "panel", pos: "radar", size: "m", life: "dead", prog: "mid", mprog: "mid",
+    vip: "none", namer: "off", wknd: "off", feedpos: "right", feed: "on", mode: "dead", tab: 0, xp: 1240,
+  };
+  const PROG = { mid: 1240, near: 1694, max: 512400 };
+
+  const $ = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+  const V = (name, text) => $$(`[data-var="${name}"]`).forEach(e => e.textContent = text);  // SetVariableFor
+  const C = (el, cls, on) => (typeof el === "string" ? $(el) : el).classList.toggle(cls, !!on); // SetClassFor
+  const timers = new Set();
+  const later = (ms, fn) => { const t = setTimeout(() => { timers.delete(t); fn(); }, ms); timers.add(t); return t; };
+  const clearAll = () => { timers.forEach(clearTimeout); timers.clear(); };
+
+  const rankIndex = xp => { let r = 1; RANKS.forEach(([, v], i) => { if (i > 0 && xp >= v) r = i; }); return r; };
+  const mult = () => {
+    const sum = 1 + VIP[S.vip] + (S.namer === "on" ? .5 : 0) + (S.wknd === "on" ? .5 : 0);
+    return Math.min(sum, CAP);
+  };
+
+  // ------------------------------------------------------------------ stage scale
+  const wrap = $("#wrap"), stage = $("#stage");
+  // Zoom keeps the HUD in question in view at 2x: a laptop shows the 1080p screen at about half size,
+  // which is truer to life but too small to judge an 11px label.
+  const FOCUS = {
+    panel: () => ({ radar: [200, 500], right: [1720, 540], bottom: [960, 790] })[S.pos],
+    bonuses: () => ({ radar: [200, 500], right: [1720, 540], bottom: [960, 790] })[S.pos],
+    feed: () => S.feedpos === "right" ? [1560, 480] : [1060, 500],
+    menu: () => [960, 540],
+  };
+  const fit = () => {
+    const k = wrap.clientWidth / 1920;
+    if (!S.zoom) { stage.style.transform = `scale(${k})`; return; }
+    const z = 2, [fx, fy] = FOCUS[S.view]();
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    const tx = Math.min(0, Math.max(W - 1920 * k * z, W / 2 - fx * k * z));
+    const ty = Math.min(0, Math.max(H - 1080 * k * z, H / 2 - fy * k * z));
+    stage.style.transform = `translate(${tx}px, ${ty}px) scale(${k * z})`;
+  };
+  new ResizeObserver(fit).observe(wrap); fit();
+  $("#zoom").addEventListener("click", () => { S.zoom = !S.zoom; $("#zoom").setAttribute("aria-pressed", String(S.zoom)); fit(); });
+
+  // ------------------------------------------------------------------ rank panel
+  function setBar(el, pct) {
+    // 50 steps of 2%, the same ladder the layout carries (fill .p0 .. .p50)
+    const step = Math.max(0, Math.min(50, Math.floor(pct / 2)));
+    el.style.setProperty("--p", (step * 2) + "%");
+  }
+  function progress(xp) {
+    const i = rankIndex(xp), cur = RANKS[i], nxt = RANKS[i + 1];
+    if (!nxt) return { i, cur, nxt: null, pct: 100 };
+    return { i, cur, nxt, pct: (xp - cur[1]) / (nxt[1] - cur[1]) * 100 };
+  }
+  function drawPanel(xp = S.xp) {
+    const p = progress(xp);
+    $("#rp_icon_cur").style.backgroundImage = icon(p.i);
+    C("#rp", "maxed", !p.nxt);
+    if (p.nxt) {
+      $("#rp_icon_next").style.backgroundImage = icon(p.i + 1);
+      V("rp_xp_now", fmt(xp)); V("rp_xp_need", "/ " + fmt(p.nxt[1]) + " XP");
+      V("rp_cur", p.cur[0]); V("rp_next", p.nxt[0]);
+    } else {
+      V("rp_xp_now", fmt(xp)); V("rp_xp_need", "XP");
+      V("rp_cur", p.cur[0]); V("rp_next", "Max rank");
+    }
+    setBar($("#rp_fill"), p.pct);
+    drawBonuses();
+  }
+  function drawBonuses() {
+    const m = mult(), raw = 1 + VIP[S.vip] + (S.namer === "on" ? .5 : 0) + (S.wknd === "on" ? .5 : 0);
+    C("#rp_b_vip", "on", S.vip !== "none");
+    V("rp_vip", S.vip === "none" ? "Not active" : xmul(1 + VIP[S.vip]));
+    V("rp_vip_hint", S.vip === "none" || S.vip === "vip" ? "" : VIPNAME[S.vip]);
+    C("#rp_b_name", "on", S.namer === "on");
+    V("rp_name", S.namer === "on" ? "x1.5" : "Not active");
+    V("rp_name_hint", S.namer === "on" ? "" : "add \"Next\" to your name");
+    C("#rp_b_wknd", "on", S.wknd === "on");
+    V("rp_wknd", S.wknd === "on" ? "Active" : "Not active");
+    V("rp_wknd_hint", "Fri - Sat");
+    V("rp_total", xmul(m));
+    C("#rp_total", "on", m > 1);
+    $("#rp_total_max").hidden = !(raw >= CAP);
+    V("rp_foot", S.feed === "on" ? "turns the XP feed off" : "turns the XP feed on");
+    V("ov_chip", "XP " + xmul(m)); $("#ov_chip").style.display = m > 1 ? "" : "none";
+    C("#ob_vip", "on", S.vip !== "none"); C("#ob_name", "on", S.namer === "on"); C("#ob_wknd", "on", S.wknd === "on");
+    V("ob_total", xmul(m) + (raw >= CAP ? " MAX" : "")); C("#ob_total", "on", m > 1);
+  }
+  function placePanel() {
+    const pos = $("#rp_pos");
+    pos.className = `rp-pos pos-${S.pos} size-${S.size}`;
+  }
+  function panelVisible() {
+    if (S.view === "menu") return false;
+    if (S.mode === "off") return false;
+    if (S.life === "dead") return true;
+    return S.life === "always";
+  }
+  function showPanel(on) { C("#rp", "show", on); }
+
+  // ------------------------------------------------------------------ feed
+  // Toast model: 8 slots, max 5 lines on screen. A new line takes the first free slot after the last one
+  // used (back to slot 0 once the stack is empty), so lines join at the bottom and keep their slot until
+  // they leave. Eight slots for five lines means the pointer almost never has to wrap mid-streak.
+  const SLOTS = 8, MAXVIS = 5;
+  const slots = [];  // { el, row, e }
+  let next = 0, seq = 0;
+  const xf = $("#xf");
+  for (let i = 0; i < SLOTS; i++) {
+    const el = document.createElement("div"); el.className = "xf-slot hidden";
+    const row = document.createElement("div"); row.className = "xf-row";
+    el.appendChild(row); xf.appendChild(el); slots.push({ el, row, e: null });
+  }
+  function rowHTML(e) {
+    const ic = (k, on) => `<i class="xf-ic ic-${k}${on ? " on" : ""}"></i>`;
+    const icons = e.parts || [];
+    return `<div class="xf-edge"></div>`
+      + `<span class="xf-orig">${e.orig ?? ""}</span>`
+      + `<span class="xf-amt">${e.amt ?? ""}</span><span class="xf-unit">XP</span>`
+      + `<span class="xf-chip">${e.chip ?? ""}${e.max ? `<span class="max">MAX</span>` : ""}</span>`
+      + `<span class="xf-tag">${e.tag ?? ""}</span>`
+      + `<span class="xf-ics">${ic("hs", icons.includes("hs"))}${ic("wb", icons.includes("wb"))}${ic("ns", icons.includes("ns"))}`
+      + `${ic("bl", icons.includes("bl"))}${ic("sm", icons.includes("sm"))}${ic("kn", icons.includes("kn"))}${ic("sk", icons.includes("sk"))}</span>`;
+  }
+  // The slots that stay on screen glide to their new place when one collapses (FLIP here, a position
+  // transition in Panorama).
+  function collapse(s) {
+    const live = slots.filter(x => x !== s && !x.el.classList.contains("hidden"));
+    const before = live.map(x => x.el.getBoundingClientRect().top);
+    s.el.classList.add("hidden");
+    const k = (stage.getBoundingClientRect().width / 1920) || 1;
+    live.forEach((x, i) => {
+      const dy = (before[i] - x.el.getBoundingClientRect().top) / k;
+      if (dy) x.el.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 240, easing: "cubic-bezier(.2,.8,.25,1)" });
+    });
+  }
+  function leave(s, id) {
+    if (!s.e || s.e.id !== id) return;
+    s.e = null;
+    s.row.classList.remove("show");                       // slides back out the way it came
+    later(320, () => { if (!s.e) collapse(s); });
+  }
+  function pushFeed(e, life = 3000) {
+    if (S.feed !== "on" && !e.always) return;
+    e.id = ++seq;
+    const alive = slots.filter(s => s.e).sort((a, b) => a.e.id - b.e.id);
+    if (alive.length >= MAXVIS) leave(alive[0], alive[0].e.id);
+    if (!slots.some(s => s.e)) next = 0;
+    let i = slots.findIndex((s, k) => k >= next && !s.e && s.el.classList.contains("hidden"));
+    if (i < 0) i = slots.findIndex(s => !s.e && s.el.classList.contains("hidden"));
+    if (i < 0) return;
+    const s = slots[i]; next = i + 1; s.e = e;
+    s.row.className = "xf-row " + (e.cls || "");          // off screen, faded, blurred
+    s.row.innerHTML = rowHTML(e);
+    s.el.classList.remove("hidden");
+    void s.row.offsetWidth;
+    requestAnimationFrame(() => s.row.classList.add("show"));
+    later(life, () => leave(s, e.id));
+  }
+  function clearFeed() { slots.forEach(s => { s.e = null; s.row.className = "xf-row"; s.el.classList.add("hidden"); }); next = 0; }
+
+  // One kill = one line. parts: list of keys from EXP; returns the line and the XP actually given.
+  function killLine(parts, m) {
+    const base = parts.reduce((a, k) => a + EXP[k], 0);
+    const total = m > 1 ? round(base * m) : base;
+    const icons = parts.map(k => ({ hs: "hs", wb: "wb", ns: "ns", bl: "bl", sm: "sm", knife: "kn" })[k]).filter(Boolean);
+    const raw = 1 + VIP[S.vip] + (S.namer === "on" ? .5 : 0) + (S.wknd === "on" ? .5 : 0);
+    // Boosted styling only when the bonus changed the amount: x1.3 on 1 XP rounds back to 1.
+    const boosted = total !== base;
+    return { e: { amt: "+" + total, orig: boosted ? "+" + base : "", chip: boosted ? xmul(m) : "", max: boosted && raw >= CAP,
+                  cls: boosted ? "bonus" : "", parts: icons }, total };
+  }
+  function deathLine(xp) {
+    return { amt: String(xp).replace("-", "−"), cls: "loss", tag: "Death", parts: ["sk"] };
+  }
+
+  // ------------------------------------------------------------------ rank up
+  function rankUp(fromI, toI) {
+    $("#ru_icon").style.backgroundImage = icon(toI);
+    V("ru_name", RANKS[toI][0]); V("ru_old", RANKS[fromI][0]); V("ru_new", RANKS[toI][0]);
+    const ru = $("#ru"); ru.classList.remove("show", "out"); void ru.offsetWidth;
+    ru.classList.add("show");
+    later(3600, () => { ru.classList.add("out"); later(500, () => ru.classList.remove("show", "out")); });
+  }
+  function panelRankUp(toXp) {
+    const cur = $("#rp_icon_cur");
+    S.xp = toXp; drawPanel();
+    const a = cur.classList.contains("swap-a");
+    cur.classList.remove("swap-a", "swap-b"); void cur.offsetWidth; cur.classList.add(a ? "swap-b" : "swap-a");
+  }
+
+  // ------------------------------------------------------------------ menu
+  function buildRanksGrid() {
+    const g = $("#ar_grid"); g.innerHTML = "";
+    RANKS.forEach(([n, v], i) => {
+      const d = document.createElement("div");
+      d.className = "ar"; d.dataset.i = i;
+      d.innerHTML = `<span class="you">YOU</span><div class="sg" style="background-image:${icon(i)}"></div><div class="n">${n}</div><div class="x">${fmt(v)} XP</div>`;
+      g.appendChild(d);
+    });
+  }
+  // Top players of this server mode. Sample names; the plugin reads them from the mode's table.
+  const TOP = [["ghost.", 612400, 1.92], ["Mazal", 455200, 1.71], ["yoavvv", 318900, 1.64], ["Dan | Next", 241700, 1.58],
+    ["shadow", 188300, 1.49], ["ruby.", 140150, 1.44], ["omer_", 99820, 1.39], ["nova", 76410, 1.31], ["itay", 61200, 1.36], ["kobi", 54980, 1.27]];
+  function topRow(pos, xp, name, kd) {
+    return `<span class="c-pos">${pos}</span><span class="c-rank" style="background-image:${icon(rankIndex(xp))}"></span>`
+      + `<span class="c-name">${name}</span><span class="c-kd">${kd}</span><span class="c-xp">${fmt(xp)}</span>`;
+  }
+  function buildTop() {
+    const list = $("#tp_list"); list.innerHTML = "";
+    TOP.forEach(([n, xp, kd], i) => {
+      const d = document.createElement("div");
+      d.className = "tp-row p" + (i + 1);
+      d.innerHTML = topRow(i + 1, xp, n, kd.toFixed(2));
+      list.appendChild(d);
+    });
+  }
+  function drawTop() {
+    // Outside the top 10 the player's own place is pinned under the list; inside it, their row is marked.
+    const me = $("#tp_me"), inTop = S.mprog === "max";
+    C(me, "hidden", inTop);
+    $$("#tp_list .tp-row").forEach((r, i) => {
+      C(r, "me", inTop && i === 0);
+      r.innerHTML = topRow(i + 1, inTop && i === 0 ? PROG.max : TOP[i][1], inTop && i === 0 ? "kobi<small>YOU</small>" : TOP[i][0], TOP[i][2].toFixed(2));
+    });
+    if (!inTop) me.innerHTML = topRow("1,204", PROG.mid, "kobi<small>YOU</small>", "1.34");
+  }
+
+  function drawMenu() {
+    const xp = PROG[S.mprog === "max" ? "max" : "mid"];
+    const p = progress(xp);
+    $("#ov_icon").style.backgroundImage = icon(p.i);
+    V("ov_name", p.cur[0]); V("ov_xp", fmt(xp) + " XP");
+    V("ov_pos", S.mprog === "max" ? "1" : "1,204"); V("ov_total", "18,350");
+    if (p.nxt) {
+      V("ov_togo", fmt(p.nxt[1] - xp) + " XP to " + p.nxt[0]);
+      V("ov_from", p.cur[0] + " · " + fmt(p.cur[1])); V("ov_to", p.nxt[0] + " · " + fmt(p.nxt[1]));
+    } else { V("ov_togo", "Top rank reached"); V("ov_from", p.cur[0] + " · " + fmt(p.cur[1])); V("ov_to", "Max rank"); }
+    setBar($("#ov_fill"), p.pct);
+    $$(".ar").forEach(d => { const i = +d.dataset.i; C(d, "cur", i === p.i); C(d, "locked", i > p.i); });
+    drawTop();
+    $$(".rm-tab").forEach(t => C(t, "active", +t.dataset.tab === S.tab));
+    $$(".rm-page").forEach(t => C(t, "active", +t.dataset.page === S.tab));
+    $("#rm_bar").className = "rm-bar at-" + S.tab;
+    $$(".se-opts").forEach(g => {
+      const key = g.dataset.set, val = { feed: S.feed, mode: S.mode, pos: S.pos, size: S.size }[key];
+      [...g.children].forEach(o => C(o, "on", o.dataset.v === val));
+      if (key === "pos" || key === "size") C(g, "disabled", S.mode === "off");
+    });
+    $("#mini_blk").className = `blk pos-${S.pos} size-${S.size}${S.mode === "off" ? " off" : ""}`;
+    $("#mini_lbl").textContent = { off: "Off", dead: "While dead", always: "Always" }[S.mode];
+    syncControls();
+  }
+
+  // ------------------------------------------------------------------ views
+  const captions = {
+    panel: "Rank panel while dead. It slides in from its own edge on death and leaves on respawn.",
+    feed: "Alive. The feed sits on the right under the kill feed and never takes the mouse.",
+    bonuses: "Rank panel while dead, bonus list in focus. Change the sources on the side.",
+    menu: "/rank, mouse driven. Opening it frees the cursor; the X or Esc closes it.",
+  };
+  function setView(v) {
+    clearAll(); clearFeed(); $("#ru").classList.remove("show", "out");
+    S.view = v;
+    $$(".tabs a").forEach(a => a.dataset.view === v ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+    $$(".side > [data-for]").forEach(g => g.classList.toggle("hidden-view", !g.dataset.for.split(" ").includes(v)));
+    $("#bg").style.backgroundImage = `url(assets/bg/${v === "menu" ? "inferno" : "mirage"}.jpg)`;
+    $("#stage_caption").textContent = captions[v];
+    if (v === "panel") { if (!["dead", "always", "whiledead"].includes(S.life)) S.life = "dead"; S.mode = S.life === "whiledead" ? "dead" : (S.life === "always" ? "always" : "dead"); }
+    if (v === "feed") { S.life = "alive"; S.vip = "vip"; S.namer = "off"; S.wknd = "off"; }
+    if (v === "bonuses") { S.life = "dead"; S.mode = "dead"; if (S.vip === "none" && S.namer === "off" && S.wknd === "off") preset("all", false); }
+    if (v === "menu") { S.life = "alive"; S.vip = "vip"; S.namer = "off"; S.wknd = "on"; }
+    C(stage, "is-dead", S.life === "dead");
+    C("#rm", "show", v === "menu");
+    placePanel(); S.xp = v === "panel" ? PROG[S.prog] : (v === "feed" ? 1694 - 30 : 1240); drawPanel(); drawMenu();
+    showPanel(false);
+    if (panelVisible()) later(60, () => showPanel(true));
+    if (v === "feed") later(500, () => run("streak"));
+    syncControls(); fit();
+  }
+  function preset(which, redraw = true) {
+    if (which === "none") { S.vip = "none"; S.namer = "off"; S.wknd = "off"; }
+    if (which === "all") { S.vip = "vip"; S.namer = "on"; S.wknd = "on"; }
+    if (which === "cap") { S.vip = "supreme"; S.namer = "on"; S.wknd = "on"; }
+    if (redraw) { drawBonuses(); syncControls(); }
+  }
+
+  // ------------------------------------------------------------------ scripted cases
+  function run(name) {
+    clearAll();
+    const step = (ms, fn) => later(ms, fn);
+    if (name === "die") {
+      showPanel(false); C(stage, "is-dead", false);
+      S.life = "dead"; syncControls();
+      const end = PROG[S.prog], start = S.prog === "max" ? end : end - 14;
+      step(350, () => { C(stage, "is-dead", true); S.xp = start; drawPanel(); showPanel(true); });
+      step(900, () => { S.xp = end; drawPanel(); });
+    }
+    if (name === "rankup") {
+      if (S.prog === "max") { S.prog = "near"; }
+      S.xp = 1694; drawPanel(); showPanel(panelVisible());
+      step(500, () => { panelRankUp(1700); rankUp(9, 10); });
+      step(4600, () => { S.prog = "near"; S.xp = 1694; drawPanel(); syncControls(); });
+    }
+    if (["streak", "streakvip", "cap"].includes(name)) {
+      clearFeed();
+      if (name === "streak") preset("none"); if (name === "streakvip") { S.vip = "vip"; S.namer = "off"; S.wknd = "off"; } if (name === "cap") preset("cap");
+      drawBonuses(); syncControls();
+      const m = mult();
+      [["kill", "hs"], ["kill", "wb"], ["kill", "hs", "wb"]].forEach((parts, k) => step(250 + k * 750, () => pushFeed(killLine(parts, m).e)));
+    }
+    if (name === "death") { clearFeed(); C(stage, "is-dead", false);
+      step(200, () => pushFeed(killLine(["kill"], mult()).e));
+      step(1100, () => { pushFeed(deathLine(EXP.death)); C(stage, "is-dead", true); });
+      step(3900, () => C(stage, "is-dead", false)); }
+    if (name === "assist") { clearFeed(); preset("all");
+      const m = mult(), base = EXP.assist, total = round(base * m);
+      const boosted = total !== base;
+      step(200, () => pushFeed({ amt: "+" + total, orig: boosted ? "+" + base : "", chip: boosted ? xmul(m) : "", cls: (boosted ? "bonus " : "") + "tagged", tag: "Assist", parts: [] })); }
+    if (name === "knife") { clearFeed();
+      const m = mult(); step(200, () => pushFeed(killLine(["kill", "knife"], m).e)); }
+    if (name === "feedrankup") { clearFeed(); S.vip = "vip"; S.namer = "off"; S.wknd = "off"; drawBonuses(); syncControls();
+      const m = mult();
+      step(200, () => pushFeed(killLine(["kill", "hs"], m).e));
+      step(1000, () => { pushFeed(killLine(["kill", "hs", "wb"], m).e); rankUp(9, 10); }); }
+    if (name === "rankdown") { clearFeed();
+      step(200, () => { pushFeed(deathLine(EXP.death)); C(stage, "is-dead", true); });
+      step(420, () => pushFeed({ cls: "note rankdown", tag: "Rank down <b>Silver III</b>", always: false }, 3400));
+      step(3900, () => C(stage, "is-dead", false)); }
+    if (name === "xpoff") { clearFeed();
+      step(200, () => pushFeed(killLine(["kill", "hs"], mult()).e));
+      step(1300, () => { pushFeed({ cls: "note", tag: "XP feed off <b>&middot; /xp</b> turns it on", always: true }, 3400); S.feed = "off"; drawBonuses(); });
+      step(2600, () => pushFeed(killLine(["kill"], mult()).e));
+      step(5200, () => { S.feed = "on"; drawBonuses(); drawMenu(); }); }
+    if (name === "menuopen" || name === "topopen") {
+      const rm = $("#rm"); rm.classList.remove("show"); void rm.offsetWidth;
+      S.tab = name === "topopen" ? 1 : 0; drawMenu();
+      step(120, () => rm.classList.add("show")); }
+    if (name.startsWith("b-")) { preset(name.slice(2)); }
+  }
+
+  // ------------------------------------------------------------------ controls
+  function syncControls() {
+    $$("[data-ctl]").forEach(g => {
+      const key = g.dataset.ctl, val = String(S[key]);
+      [...g.children].forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === val)));
+    });
+  }
+  document.addEventListener("click", ev => {
+    const b = ev.target.closest("button, .rm-tab, .se-opt, #rm_close");
+    if (!b) return;
+    if (b.dataset.run) return run(b.dataset.run);
+    const seg = b.closest("[data-ctl]");
+    if (seg) {
+      const key = seg.dataset.ctl, v = b.dataset.v;
+      if (key === "tab") { S.tab = +v; drawMenu(); return; }
+      S[key] = v;
+      if (key === "pos" || key === "size") { placePanel(); drawMenu(); }
+      if (key === "life") { S.mode = v === "always" ? "always" : "dead"; C(stage, "is-dead", v === "dead"); showPanel(panelVisible()); }
+      if (key === "prog") { S.xp = PROG[v]; drawPanel(); }
+      if (key === "mprog") drawMenu();
+      if (["vip", "namer", "wknd"].includes(key)) drawBonuses();
+      if (key === "feedpos") { xf.className = "xf pos-" + v; }
+      syncControls(); fit(); return;
+    }
+    if (b.classList.contains("rm-tab")) { S.tab = +b.dataset.tab; drawMenu(); return; }
+    if (b.classList.contains("se-opt")) {
+      const key = b.parentElement.dataset.set; S[key] = b.dataset.v;
+      if (key === "pos" || key === "size") placePanel();
+      if (key === "feed") drawBonuses();
+      drawMenu(); return;
+    }
+    if (b.id === "rm_close") { $("#rm").classList.remove("show"); }
+  });
+
+  function route() {
+    const v = (location.hash || "#panel").slice(1);
+    setView(["panel", "feed", "bonuses", "menu"].includes(v) ? v : "panel");
+  }
+  window.addEventListener("hashchange", route);
+  buildRanksGrid(); buildTop();
+  route();
+})();
+</script>

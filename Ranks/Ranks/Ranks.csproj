@@ -1,20 +1,41 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-
   <ItemGroup>
-    <PackageReference Include="CounterStrikeSharp.API" Version="1.0.329" />
-    <PackageReference Include="Dapper" Version="2.1.15" />
-    <PackageReference Include="Microsoft.Extensions.Localization" Version="8.0.0" />
-    <PackageReference Include="MySqlConnector" Version="2.3.0-beta.3" />
+    <PackageReference Include="CounterStrikeSharp.API" Version="$(CounterStrikeSharpVersion)" />
+    <PackageReference Include="Dapper" Version="2.1.35" />
+    <PackageReference Include="MySqlConnector" Version="2.3.7" />
+    <!-- Same pin as every other HUD plugin of ours, so one server never runs two library builds. -->
+    <PackageReference Include="PanoramaManager" Version="0.4.3" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\RanksApi\RanksApi.csproj" />
+    <!-- Must resolve from addons/counterstrikesharp/shared/: a private copy gives this plugin its own
+         IRanksApi type and every module's capability lookup fails. -->
+    <ProjectReference Include="..\RanksApi\RanksApi.csproj">
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- VIP Core 2.0 API (Next-il/cs2-VIPCore), the same build its release puts in shared/. Private=false for
+         the same reason as RanksApi. Optional at runtime: without VIP Core the VIP bonus is simply off. -->
+    <Reference Include="VipCoreApi">
+      <HintPath>..\..\lib\VipCoreApi.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="lang\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Copy only what the host does not provide. CopyLocalLockFileAssemblies stays off: it would copy
+       CounterStrikeSharp.API's whole dependency tree beside the plugin. -->
+  <Target Name="CopyRuntimePackages" AfterTargets="ResolveLockFileCopyLocalFiles">
+    <ItemGroup>
+      <ReferenceCopyLocalPaths Include="@(RuntimeCopyLocalItems)"
+                               Condition="'%(RuntimeCopyLocalItems.NuGetPackageId)' == 'PanoramaManager' Or '%(RuntimeCopyLocalItems.NuGetPackageId)' == 'Dapper' Or '%(RuntimeCopyLocalItems.NuGetPackageId)' == 'MySqlConnector'" />
+    </ItemGroup>
+  </Target>
 
 </Project>

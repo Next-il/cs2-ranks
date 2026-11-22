@@ -1,0 +1,267 @@
+/*
+    ranks_panel - the rank card. Include hud_shared and ranks_shared first.
+
+    Signed off as the review page's rank panel (hud/previews/index.html): ranks on one line at both ends, the
+    skewed bar under them at full width, the XP count small under the bar, then the bonus list and the /xp hint.
+    Sizes are 1080p pixels.
+
+    PLACEMENT AND THE SLIDE. The pos- class carries both where the card sits and which edge it comes from, the
+    same way nowplaying_hud does. The reveal ("show") brings it to zero. Every ancestor up to hud-screen is
+    noclip-or-unsized, so the off-screen start is legal.
+
+    UNVERIFIED IN GAME, with the fallback if it does not work:
+      ui-scale (size-s/m/l)  ->  three width/font sets on .rp-card instead
+      skewx() on .rp-bar     ->  a parallelogram segment image in the addon instead of the transform
+*/
+
+.rp-root {
+    width: fit-children;
+    height: fit-children;
+    overflow: noclip;
+    opacity: 0;
+    transition-property: opacity, transform;
+    transition-duration: 0.26s;
+    transition-timing-function: ease-out;
+}
+
+.rp-root.pos-radar  { horizontal-align: left;   vertical-align: top;    margin-left: 18px; margin-top: 352px; transform: translateX(-440px); }
+.rp-root.pos-right  { horizontal-align: right;  vertical-align: center; margin-right: 24px;                   transform: translateX(460px); }
+.rp-root.pos-bottom { horizontal-align: center; vertical-align: bottom; margin-bottom: 132px;                 transform: translateY(380px); }
+
+.rp-root.pos-radar.show  { opacity: 1; transform: translateX(0px); }
+.rp-root.pos-right.show  { opacity: 1; transform: translateX(0px); }
+.rp-root.pos-bottom.show { opacity: 1; transform: translateY(0px); }
+
+.rp-scale {
+    width: fit-children;
+    height: fit-children;
+    overflow: noclip;
+}
+.rp-scale.size-s { ui-scale: 85%; }
+.rp-scale.size-m { ui-scale: 100%; }
+.rp-scale.size-l { ui-scale: 120%; }
+
+.rp-card {
+    width: 360px;
+    flow-children: down;
+}
+
+/* hud-card's border is the same gold; the fill is the lighter toast alpha, this is read at a glance. */
+.rp-card.hud-card {
+    background-color: gradient(linear, 0% 0%, 0% 100%, from(#12171ee2), to(#0b0f14ec));
+}
+
+.fill { width: fill-parent-flow(1.0); height: 1px; }
+
+.rp-eyebrow {
+    font-family: Stratum2 Mono;
+    font-size: 9.5px;
+    color: #8b939c;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    vertical-align: center;
+}
+.rp-title { margin: 11px 16px 0px 16px; }
+
+/* ------------------------------------------------------------------ ranks + bar */
+
+.rp-ranks {
+    flow-children: right;
+    width: 100%;
+    padding: 10px 16px 0px 16px;
+}
+
+.rp-rank {
+    flow-children: right;
+    width: fit-children;
+    height: 19px;
+}
+
+.rp-icon {
+    width: 46px;
+    height: 19px;
+}
+
+/* items-end: the name sits on the icon's bottom line */
+.rp-rname {
+    width: fit-children;
+    max-width: 96px;
+    font-family: Stratum2 Medium Condensed;
+    font-size: 11.5px;
+    color: #ffffff;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    text-overflow: shrink min( 9px ) ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+    margin-bottom: 1px;
+}
+.rp-rank-cur .rp-rname  { margin-left: 5px; }
+.rp-rank-next .rp-rname { margin-right: 5px; color: #8b939c; }
+.rp-rank-next .rp-icon  { saturation: 0.2; opacity: 0.55; }
+
+.rp-root.maxed .rp-rank-next .rp-icon { visibility: collapse; }
+.rp-root.maxed .rp-rank-next .rp-rname { color: #f0a531; }
+
+.rp-bar {
+    width: 322px;
+    height: 10px;
+    margin: 9px 19px 0px 19px;
+    transform: skewx( -24deg );
+}
+
+.rp-xp {
+    flow-children: right;
+    width: fit-children;
+    horizontal-align: center;
+    margin: 5px 0px 12px 0px;
+}
+.rp-xp-now, .rp-xp-need {
+    width: fit-children;
+    font-family: Stratum2 Medium Condensed;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+    color: #8b939c;
+}
+.rp-xp-now { color: #c9ced4; font-weight: bold; margin-right: 3px; }
+
+/* the rank-up flash on the current icon; two names so the server can restart it */
+@keyframes rp-swap {
+    0%   { brightness: 3.0; transform: scale3d( 1.35, 1.35, 1.0 ); }
+    100% { brightness: 1.0; transform: scale3d( 1.0, 1.0, 1.0 ); }
+}
+.rp-icon.swap-a { animation-name: rp-swap; animation-duration: 0.55s; animation-timing-function: ease-out; animation-iteration-count: 1; }
+.rp-icon.swap-b { animation-name: rp-swap; animation-duration: 0.56s; animation-timing-function: ease-out; animation-iteration-count: 1; }
+
+.rp-sep {
+    width: 328px;
+    height: 1px;
+    horizontal-align: center;
+    background-color: #ffffff10;
+}
+
+/* ------------------------------------------------------------------ bonuses */
+
+.rp-bonus {
+    flow-children: down;
+    width: 100%;
+    padding: 10px 16px 11px 16px;
+}
+
+.rp-bonus-head {
+    flow-children: right;
+    width: 100%;
+    margin-bottom: 3px;
+}
+
+.rp-total {
+    flow-children: right;
+    width: fit-children;
+}
+.rp-total-v {
+    width: fit-children;
+    font-family: Stratum2 Medium Condensed;
+    font-size: 15px;
+    font-weight: bold;
+    color: #8b939c;
+    vertical-align: center;
+}
+.rp-total.on .rp-total-v { color: #f0a531; }
+.rp-max {
+    width: fit-children;
+    font-family: Stratum2 Mono;
+    font-size: 9px;
+    font-weight: bold;
+    color: #14110a;
+    background-color: #f0a531;
+    padding: 1px 4px 1px 4px;
+    margin-left: 5px;
+    vertical-align: center;
+}
+
+/* every item on a row centred on the row's middle line */
+.rp-b {
+    flow-children: right;
+    width: 100%;
+    height: 19px;
+    margin-top: 6px;
+}
+.rp-dot {
+    width: 6px;
+    height: 6px;
+    margin-right: 8px;
+    vertical-align: center;
+    background-color: #ffffff26;
+}
+.rp-b.on .rp-dot { background-color: #f0a531; }
+
+.rp-b-name {
+    width: fit-children;
+    font-family: Stratum2 Regular;
+    font-size: 13px;
+    color: #8b939c;
+    vertical-align: center;
+}
+.rp-b.on .rp-b-name { color: #ffffff; }
+
+.rp-b-hint {
+    width: fit-children;
+    max-width: 150px;
+    font-family: Stratum2 Regular;
+    font-size: 11px;
+    color: #5c646d;
+    margin-left: 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: center;
+}
+
+.rp-b-val {
+    width: fit-children;
+    font-family: Stratum2 Regular;
+    font-size: 12px;
+    color: #5c646d;
+    vertical-align: center;
+}
+.rp-b.on .rp-b-val {
+    font-family: Stratum2 Medium Condensed;
+    font-size: 15px;
+    font-weight: bold;
+    color: #f0a531;
+}
+
+.rp-soon {
+    width: fit-children;
+    font-family: Stratum2 Mono;
+    font-size: 9px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: #8b939c;
+    background-color: #ffffff10;
+    padding: 2px 6px 2px 6px;
+    vertical-align: center;
+}
+
+/* ------------------------------------------------------------------ foot */
+
+.rp-foot {
+    flow-children: right;
+    width: 100%;
+    padding: 9px 16px 11px 16px;
+}
+.rp-cmd {
+    width: fit-children;
+    font-family: Stratum2 Mono;
+    font-size: 11px;
+    font-weight: bold;
+    color: #f0a531;
+    margin-right: 6px;
+    vertical-align: center;
+}
+.rp-foot-txt {
+    width: fit-children;
+    font-family: Stratum2 Regular;
+    font-size: 11.5px;
+    color: #8b939c;
+    vertical-align: center;
+}

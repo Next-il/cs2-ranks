@@ -1,3 +1,19 @@
+# Next-il fork
+
+Our build of thesamefabius' [Ranks] Core v2.0.5 for the Next servers. Every push to `main` releases `Ranks-vN.zip`: one folder per Mounts rule (`Ranks`, `RanksApi`, `Ranks_FakeRank`, `Ranks_Tag`).
+
+- **XP per event.** Every part of one kill (kill, headshot, wallbang, noscope, blind, smoke, weapon) is summed, the bonus is applied once, and the total is rounded once, half away from zero.
+- **XP bonuses** (`Bonuses` in ranks.json): VIP from VIP Core's `exp_multiplier`, the name reward (`ranks_namereward_name` / `ranks_namereward_experience_multiplier`), and the weekend bonus. They add up (1 + each bonus's extra part), and the total is capped by `MaxMultiplier` (3.0). Lost XP is never multiplied. This replaces VIP Core's VIP_ExperienceMultiplier module.
+- **HUDs** (`Hud` in ranks.json, Panorama layouts in `hud/panorama`):
+  - the rank panel, shown while dead or always;
+  - the XP feed with the RANK UP banner;
+  - `/rank`, with Overview, Top players, All ranks and Settings tabs. `/top` opens it on Top players.
+  - `/xp` turns the feed off. `Hud.Enabled = false` brings back one chat line per event.
+- **Per-player HUD settings** live in MySQL table `ranks_hud_settings`. It is created by hand and never by the plugin.
+- **Layouts** come from `hud/tools/gen_layouts.py` (ids must match `Hud/*.cs`). Validate them with PanoramaHUD-Skills' `validate.py`. `hud/previews/index.html` is the signed-off review page; extract its art with `vpk_extract.py` into the git-ignored `assets/`.
+
+---
+
 
 
 # Player Ranking

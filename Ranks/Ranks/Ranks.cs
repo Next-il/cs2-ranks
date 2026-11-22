@@ -17,35 +17,68 @@ using CounterStrikeSharp.API.Modules.Timers;
 using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
 using MySqlConnector;
+using PanoramaManager;
+using Ranks.Hud;
 using RanksApi;
 
 namespace Ranks;
 
+// Next-il fork of thesamefabius' [Ranks] Core v2.0.5 (Next-il/cs2-ranks). What changed:
+//  - XP is granted per event: every part of one kill is summed, the bonus is applied once, rounded once (Xp.cs).
+//  - The XP bonuses live here now (Bonuses.cs): VIP from VIP Core, the name reward, the weekend bonus. They add up and
+//    are capped by Bonuses.MaxMultiplier. This replaces the VIP_ExperienceMultiplier module of our VIP Core fork.
+//  - Three Panorama HUDs replace the chat lines and the CenterHtml menu (Hud/): the rank panel, the XP feed with the
+//    RANK UP banner, and the /rank menu, which /top opens on its Top players tab. Hud.Enabled = false brings back one
+//    batched chat line per event and the old menus.
+//  - Rank changes fire at the top rank too; the stored rank is synced quietly on join instead of announced.
+
 [MinimumApiVersion(210)]
 public class Ranks : BasePlugin
 {
-    public override string ModuleAuthor => "thesamefabius";
+    public override string ModuleAuthor => "thesamefabius, Next-il";
     public override string ModuleDescription => "Adds a rating system to the server";
     public override string ModuleName => "[Ranks] Core";
-    public override string ModuleVersion => "v2.0.5";
+    public override string ModuleVersion => "v2.0.5-next";
 
     public string DbConnectionString = string.Empty;
 
     public Config Config = null!;
     public Database Database = null!;
     public RanksApi RanksApi = null!;
+    public BonusService Bonuses = null!;
+    public HudPrefsStore Prefs = null!;
 
     public readonly ConcurrentDictionary<ulong, User> Users = new();
     private readonly DateTime[] _loginTime = new DateTime[64];
 
     public readonly FakeConVar<bool> RanksEnable = new("css_lr_enable", "", true);
-    
+
+    // Next-il: the name reward. Same names as the VIP_ExperienceMultiplier module used, so the lines already in
+    // multicfg/general.cfg keep working. Matched anywhere in the nickname, ignoring case.
+    public readonly FakeConVar<string> NameRewardName =
+        new("ranks_namereward_name", "Nickname text that earns the XP name reward", "Next");
+
+    public readonly FakeConVar<float> NameRewardMultiplier =
+        new("ranks_namereward_experience_multiplier", "XP multiplier for the name reward", 1.5f);
+
+    private RankPanel? _panel;
+    private XpFeed? _feed;
+    private RankMenu? _menu;
+
+    /// <summary>Config.Ranks ordered by threshold, ties kept in file order. Rebuilt with the config.</summary>
+    private List<(string Name, int Value)> _ladder = [];
+
+    private CCSGameRulesProxy? _rules;
+
+    private bool Hud => Config.Hud.Enabled && _feed != null;
+
     public override void Load(bool hotReload)
     {
         RanksApi = new RanksApi(this);
         Capabilities.RegisterPluginCapability(IRanksApi.Capability, () => RanksApi);
 
         Config = LoadConfig();
+        BuildLadder();
         DbConnectionString = BuildConnectionString();
         Database = new Database(this, DbConnectionString);
         Task.Run(Database.CreateTable).ContinueWith((task) => {
@@ -55,33 +88,85 @@ public class Ranks : BasePlugin
             }
         });
 
+        Bonuses = new BonusService(this);
+        Prefs = new HudPrefsStore(this);
+
+        if (Config.Hud.Enabled)
+        {
+            Panorama.Init(this);
+            _panel = new RankPanel(this);
+            _feed = new XpFeed(this);
+            _menu = new RankMenu(this);
+        }
+
         AddCommandListener("say", CommandListener_Say);
         AddCommandListener("say_team", CommandListener_Say);
-        
+
         RegisterListener<Listeners.OnClientAuthorized>(OnClientAuthorized);
-        
+        RegisterListener<Listeners.OnMapStart>(_ =>
+        {
+            _rules = null;
+            _feed?.Reset();
+        });
+
         RegisterEventHandler<EventWeaponFire>(EventWeaponFire);
         RegisterEventHandler<EventPlayerHurt>(EventPlayerHurt);
         RegisterEventHandler<EventPlayerDeath>(EventPlayerDeath);
         RegisterEventHandler<EventPlayerDisconnect>(EventPlayerDisconnect);
-        
+        RegisterEventHandler<EventPlayerConnectFull>(EventPlayerConnectFull);
+        RegisterEventHandler<EventPlayerSpawn>(EventPlayerSpawn);
+        RegisterEventHandler<EventPlayerTeam>(EventPlayerTeam);
+
         RegisterEventHandler<EventRoundStart>(EventRoundStart);
         RegisterEventHandler<EventRoundEnd>(EventRoundEnd);
         RegisterEventHandler<EventRoundMvp>(EventRoundMvp);
-        
+
         BombEvents();
         CreateMenu();
-        
+
         AddTimer(5.0f, UpdateUserStatsTimer, TimerFlags.REPEAT);
     }
-    
+
+    public override void OnAllPluginsLoaded(bool hotReload)
+    {
+        VipBridge.Resolve(Logger);
+    }
+
+    public override void Unload(bool hotReload)
+    {
+        _menu?.Dispose();
+        _feed?.Dispose();
+        _panel?.Dispose();
+    }
+
+    // ------------------------------------------------------------------ commands
+
     [ConsoleCommand("css_rank")]
     public void OnCmdRank(CCSPlayerController? controller, CommandInfo command)
     {
         if (controller == null) return;
 
+        if (Hud)
+        {
+            _menu!.Open(controller, RankMenu.TabOverview);
+            return;
+        }
+
         var steamId = new SteamID(controller.SteamID);
         Task.Run(() => GetUserStats(controller, steamId));
+    }
+
+    [ConsoleCommand("css_xp")]
+    public void OnCmdXp(CCSPlayerController? controller, CommandInfo command)
+    {
+        if (controller == null || !Hud) return;
+
+        var prefs = Prefs.Update(controller.SteamID, p => p.Feed = !p.Feed);
+        _feed!.Push(controller, prefs.Feed
+            ? new FeedLine("", Tag: Text("feed.on", "XP feed on"), Kind: FeedKind.Note, Always: true)
+            : new FeedLine("", Tag: Text("feed.off", "XP feed off"), Tag2: Text("feed.off_hint", "/xp turns it on"),
+                Kind: FeedKind.Note, Always: true));
+        HudPrefsChanged(controller, prefs);
     }
 
     [RequiresPermissions("@css/root")]
@@ -134,13 +219,20 @@ public class Ranks : BasePlugin
         if (controller != null) return;
 
         Config = LoadConfig();
-        Logger.LogInformation("Configuration successfully rebooted");
+        BuildLadder();
+        Logger.LogInformation("Configuration successfully rebooted (Hud.Enabled changes need a map change)");
     }
 
     [ConsoleCommand("css_top")]
     public void OnCmdTop(CCSPlayerController? controller, CommandInfo command)
     {
         if (controller == null) return;
+
+        if (Hud)
+        {
+            _menu!.Open(controller, RankMenu.TabTop);
+            return;
+        }
 
         Task.Run(() => ShowTopPlayers(controller));
     }
@@ -159,14 +251,12 @@ public class Ranks : BasePlugin
             {
                 if (!controller.IsValid) continue;
 
-                //controller.PrintToChat(
-                //    $"{rank++}. {ChatColors.Blue}{player.name} \x01[{ChatColors.Olive}{ReplaceColorTags(GetLevelFromExperience(player.value).Name)}\x01] -\x06 Experience: {ChatColors.Blue}{player.value}");
                 controller.PrintToChat(
                     $"{rank++}. {Localizer["top.Players", player.name, ReplaceColorTags(GetLevelFromExperience(player.value).Name), player.value]}");
             }
         });
     }
-    
+
     private HookResult CommandListener_Say(CCSPlayerController? player, CommandInfo info)
     {
         if (player == null) return HookResult.Continue;
@@ -184,12 +274,17 @@ public class Ranks : BasePlugin
                 case "top":
                     OnCmdTop(player, info);
                     return HookResult.Continue;
+                case "xp":
+                    OnCmdXp(player, info);
+                    return HookResult.Continue;
             }
         }
 
         return HookResult.Continue;
     }
-    
+
+    // ------------------------------------------------------------------ players
+
     private void OnClientAuthorized(int slot, SteamID id)
     {
         var player = Utilities.GetPlayerFromSlot(slot);
@@ -197,11 +292,11 @@ public class Ranks : BasePlugin
         if (player is null || player.IsBot) return;
         var playerName = player.PlayerName;
 
-        Task.Run(() => OnClientAuthorizedAsync(playerName, id));
+        Task.Run(() => OnClientAuthorizedAsync(slot, playerName, id));
         _loginTime[player.Slot] = DateTime.UtcNow;
     }
-    
-    private async Task OnClientAuthorizedAsync(string playerName, SteamID steamId)
+
+    private async Task OnClientAuthorizedAsync(int slot, string playerName, SteamID steamId)
     {
         var userExists = await Database.UserExists(steamId.SteamId2);
 
@@ -215,6 +310,10 @@ public class Ranks : BasePlugin
         var initPoints = Config.InitialExperiencePoints;
         if (user.value <= 0 && initPoints > 0)
             user.value = initPoints;
+
+        // The stored rank can be stale - a new player is 0, and thresholds change. Synced here, quietly: a rank change
+        // is announced when XP moves it, not when someone joins.
+        user.rank = GetLevelFromExperience(user.value).Level;
 
         Users[steamId.SteamId64] = new User
         {
@@ -233,8 +332,66 @@ public class Ranks : BasePlugin
             playtime = user.playtime,
             lastconnect = user.lastconnect
         };
+
+        if (Config.Hud.Enabled) await Prefs.LoadAsync(steamId.SteamId64);
+
+        await Server.NextFrameAsync(() =>
+        {
+            var player = Utilities.GetPlayerFromSlot(slot);
+            if (player is { IsValid: true, Connected: PlayerConnectedState.Connected } && player.SteamID == steamId.SteamId64)
+                AttachHud(player);
+        });
     }
-    
+
+    private HookResult EventPlayerConnectFull(EventPlayerConnectFull @event, GameEventInfo info)
+    {
+        if (@event.Userid is { IsValid: true, IsBot: false } player && Users.ContainsKey(player.SteamID))
+            AttachHud(player);
+
+        return HookResult.Continue;
+    }
+
+    private void AttachHud(CCSPlayerController player)
+    {
+        if (!Hud) return;
+        _feed!.Attach(player);
+        _panel!.Sync(player);
+    }
+
+    private HookResult EventPlayerSpawn(EventPlayerSpawn @event, GameEventInfo info)
+    {
+        SyncPanelNextFrame(@event.Userid);
+        return HookResult.Continue;
+    }
+
+    private HookResult EventPlayerTeam(EventPlayerTeam @event, GameEventInfo info)
+    {
+        SyncPanelNextFrame(@event.Userid);
+        return HookResult.Continue;
+    }
+
+    /// <summary>The pawn's life state settles after the event, so the panel is judged a frame later.</summary>
+    private void SyncPanelNextFrame(CCSPlayerController? player)
+    {
+        if (!Hud || player is not { IsValid: true, IsBot: false }) return;
+
+        var slot = player.Slot;
+        var steamId = player.SteamID;
+        Server.NextFrame(() =>
+        {
+            var current = Utilities.GetPlayerFromSlot(slot);
+            if (current is { IsValid: true } && current.SteamID == steamId) _panel!.Sync(current);
+        });
+    }
+
+    /// <summary>Called by the menu's Settings tab and by /xp after the player changed a choice.</summary>
+    public void HudPrefsChanged(CCSPlayerController player, HudPrefs prefs)
+    {
+        if (!Hud) return;
+        _panel!.Sync(player);
+        _panel.Refresh(player);
+    }
+
     private void UpdateUserStatsTimer()
     {
         foreach (var player in Utilities.GetPlayers().Where(u => u.IsValid))
@@ -246,15 +403,42 @@ public class Ranks : BasePlugin
 
             Task.Run(() =>
                 Database.UpdateUserStatsDb(steamId, user, totalTime, DateTimeOffset.Now.ToUnixTimeSeconds()));
-            //Task.Run(OnMapStartAsync);
         }
     }
+
+    private HookResult EventPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
+    {
+        var player = @event.Userid;
+
+        if (player is null || !player.IsValid) return HookResult.Continue;
+
+        _panel?.Forget(player.Slot);
+        _feed?.Forget(player.Slot);
+        _menu?.Forget(player.Slot);
+        Prefs.Forget(player.SteamID);
+
+        if (Users.TryGetValue(player.SteamID, out var user))
+        {
+            var steamId = new SteamID(player.SteamID);
+            var totalTime = GetTotalTime(player.Slot);
+            _loginTime[player.Slot] = DateTime.MinValue;
+
+            user.name = player.PlayerName;
+            Task.Run(() =>
+                Database.UpdateUserStatsDb(steamId, user, totalTime, DateTimeOffset.Now.ToUnixTimeSeconds()));
+            Users.Remove(player.SteamID, out var _);
+        }
+
+        return HookResult.Continue;
+    }
+
+    // ------------------------------------------------------------------ XP events
 
     private HookResult EventWeaponFire(EventWeaponFire @event, GameEventInfo info)
     {
         var player = @event.Userid;
         if (player != null)
-            UpdateUserStatsLocal(player, hits: 1);
+            Grant(player, new XpGrant { Stats = { Hits = 1 } });
 
         return HookResult.Continue;
     }
@@ -264,18 +448,18 @@ public class Ranks : BasePlugin
         var attacker = @event.Attacker;
 
         if (attacker is { IsValid: true, IsBot: false })
-        {
-            UpdateUserStatsLocal(attacker, shoots: 1);
-        }
+            Grant(attacker, new XpGrant { Stats = { Shoots = 1 } });
 
         return HookResult.Continue;
     }
-    
-     private HookResult EventPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
+
+    private HookResult EventPlayerDeath(EventPlayerDeath @event, GameEventInfo info)
     {
         var victim = @event.Userid;
         var attacker = @event.Attacker;
         var assister = @event.Assister;
+
+        if (victim is { IsValid: true, IsBot: false }) SyncPanelNextFrame(victim);
 
         if (Config.MinPlayers > PlayersCount)
             return HookResult.Continue;
@@ -293,8 +477,9 @@ public class Ranks : BasePlugin
             if (attacker != victim)
             {
                 if (victim is not null && attacker.TeamNum == victim.TeamNum && !Config.TeamKillAllowed)
-                    UpdateUserStatsLocal(attacker, Localizer["KillingAnAlly"],
-                        exp: configEvent.KillingAnAlly);
+                {
+                    Grant(attacker, new XpGrant().Add(XpPart.TeamKill, configEvent.KillingAnAlly));
+                }
                 else
                 {
                     var weaponName = @event.Weapon;
@@ -302,32 +487,35 @@ public class Ranks : BasePlugin
                     if (Regex.Match(weaponName, "knife").Success || Regex.Match(weaponName, "bayonet").Success)
                         weaponName = "knife";
 
+                    // One grant for the whole kill: the kill, then each extra the event carries.
+                    var kill = new XpGrant { Stats = { Kills = 1 } };
+
                     if (Config.TypeStatistics is 1)
                     {
-                        expAttacker = (Users[victim.SteamID].value / Users[attacker.SteamID].value * 5.0f)
-                            .RoundToNearest();
+                        var victimXp = victim != null && Users.TryGetValue(victim.SteamID, out var v) ? v.value : 0;
+                        var attackerXp = Users.TryGetValue(attacker.SteamID, out var a) && a.value != 0 ? a.value : 1;
+                        expAttacker = (victimXp / attackerXp * 5.0f).RoundToNearest();
 
                         if (expAttacker < 1)
                             expAttacker = 1;
 
-                        UpdateUserStatsLocal(attacker, Localizer["PerKill"], exp: expAttacker, kills: 1);
+                        kill.Add(XpPart.Kill, expAttacker);
                     }
                     else
-                        UpdateUserStatsLocal(attacker, Localizer["PerKill"], exp: configEvent.Kills, kills: 1);
+                        kill.Add(XpPart.Kill, configEvent.Kills);
 
-                    if (@event.Penetrated > 0)
-                        UpdateUserStatsLocal(attacker, Localizer["KillingThroughWall"], exp: additionally.Penetrated);
-                    if (@event.Thrusmoke)
-                        UpdateUserStatsLocal(attacker, Localizer["MurderThroughSmoke"], exp: additionally.Thrusmoke);
-                    if (@event.Noscope)
-                        UpdateUserStatsLocal(attacker, Localizer["MurderWithoutScope"], exp: additionally.Noscope);
+                    if (@event.Penetrated > 0) kill.Add(XpPart.Wallbang, additionally.Penetrated);
+                    if (@event.Thrusmoke) kill.Add(XpPart.Smoke, additionally.Thrusmoke);
+                    if (@event.Noscope) kill.Add(XpPart.Noscope, additionally.Noscope);
                     if (@event.Headshot)
-                        UpdateUserStatsLocal(attacker, Localizer["MurderToTheHead"], exp: additionally.Headshot,
-                            headshots: 1);
-                    if (@event.Attackerblind)
-                        UpdateUserStatsLocal(attacker, Localizer["BlindMurder"], exp: additionally.Attackerblind);
-                    if (Config.Weapon.TryGetValue(weaponName, out var exp))
-                        UpdateUserStatsLocal(attacker, Localizer["MurderWith", weaponName], exp: exp);
+                    {
+                        kill.Add(XpPart.Headshot, additionally.Headshot);
+                        kill.Stats.Headshots = 1;
+                    }
+                    if (@event.Attackerblind) kill.Add(XpPart.Blind, additionally.Attackerblind);
+                    if (Config.Weapon.TryGetValue(weaponName, out var exp)) kill.Add(XpPart.Weapon, exp);
+
+                    Grant(attacker, kill, weaponName);
                 }
             }
         }
@@ -347,42 +535,19 @@ public class Ranks : BasePlugin
                         expVictim = 1;
                     }
 
-                    UpdateUserStatsLocal(victim, Localizer["PerDeath"], exp: -expVictim,
-                        death: 1);
+                    Grant(victim, new XpGrant { Stats = { Deaths = 1 } }.Add(XpPart.Death, -expVictim));
                 }
                 else
-                    UpdateUserStatsLocal(victim, Localizer["PerDeath"], exp: configEvent.Deaths,
-                        death: 1);
+                    Grant(victim, new XpGrant { Stats = { Deaths = 1 } }.Add(XpPart.Death, configEvent.Deaths));
             }
             else
-                UpdateUserStatsLocal(victim, Localizer["suicide"], exp: configEvent.Suicide);
+                Grant(victim, new XpGrant().Add(XpPart.Suicide, configEvent.Suicide));
         }
 
         if (assister is not null && assister.IsValid)
         {
             if (assister.IsBot) return HookResult.Continue;
-            UpdateUserStatsLocal(assister, Localizer["AssistingInAKill"], exp: configEvent.Assists, assist: 1);
-        }
-
-        return HookResult.Continue;
-    }
-
-    private HookResult EventPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
-    {
-        var player = @event.Userid;
-
-        if (player is null || !player.IsValid) return HookResult.Continue;
-
-        if (Users.TryGetValue(player.SteamID, out var user))
-        {
-            var steamId = new SteamID(player.SteamID);
-            var totalTime = GetTotalTime(player.Slot);
-            _loginTime[player.Slot] = DateTime.MinValue;
-
-            user.name = player.PlayerName;
-            Task.Run(() =>
-                Database.UpdateUserStatsDb(steamId, user, totalTime, DateTimeOffset.Now.ToUnixTimeSeconds()));
-            Users.Remove(player.SteamID, out var _);
+            Grant(assister, new XpGrant { Stats = { Assists = 1 } }.Add(XpPart.Assist, configEvent.Assists));
         }
 
         return HookResult.Continue;
@@ -413,21 +578,21 @@ public class Ranks : BasePlugin
             if (player.Team is not CsTeam.Spectator)
             {
                 if (player.TeamNum != winner)
-                    UpdateUserStatsLocal(player, Localizer["LosingRound"], exp: configEvent.Loser, roundlose: 1);
+                    Grant(player, new XpGrant { Stats = { RoundLose = 1 } }.Add(XpPart.RoundLoss, configEvent.Loser));
                 else
-                    UpdateUserStatsLocal(player, Localizer["WinningRound"], exp: configEvent.Winner, roundwin: 1);
+                    Grant(player, new XpGrant { Stats = { RoundWin = 1 } }.Add(XpPart.RoundWin, configEvent.Winner));
             }
         }
 
         return HookResult.Continue;
     }
-    
+
     private HookResult EventRoundMvp(EventRoundMvp @event, GameEventInfo info)
     {
         var player = @event.Userid;
         if (player is null || !player.IsValid) return HookResult.Continue;
-        
-        UpdateUserStatsLocal(player, Localizer["Mvp"], exp: Config.Events.EventRoundMvp);
+
+        Grant(player, new XpGrant().Add(XpPart.Mvp, Config.Events.EventRoundMvp));
 
         return HookResult.Continue;
     }
@@ -436,50 +601,259 @@ public class Ranks : BasePlugin
     {
         RegisterEventHandler<EventBombDropped>((@event, _) =>
         {
-            var configEvent = Config.Events.EventPlayerBomb;
-            var player = @event.Userid;
-
-            if (player != null && player.IsValid)
-                UpdateUserStatsLocal(player, Localizer["dropping_bomb"], exp: configEvent.DroppedBomb);
+            if (@event.Userid is { IsValid: true } player)
+                Grant(player, new XpGrant().Add(XpPart.BombDrop, Config.Events.EventPlayerBomb.DroppedBomb));
             return HookResult.Continue;
         });
 
         RegisterEventHandler<EventBombDefused>((@event, _) =>
         {
-            var configEvent = Config.Events.EventPlayerBomb;
-            var player = @event.Userid;
-
-            if (player != null && player.IsValid)
-                UpdateUserStatsLocal(player, Localizer["defusing_bomb"], exp: configEvent.DefusedBomb);
+            if (@event.Userid is { IsValid: true } player)
+                Grant(player, new XpGrant().Add(XpPart.BombDefuse, Config.Events.EventPlayerBomb.DefusedBomb));
             return HookResult.Continue;
         });
 
         RegisterEventHandler<EventBombPickup>((@event, _) =>
         {
-            var configEvent = Config.Events.EventPlayerBomb;
-            var player = @event.Userid;
-
-            if (player != null && player.IsValid)
-                UpdateUserStatsLocal(player, Localizer["raising_bomb"], exp: configEvent.PickUpBomb);
+            if (@event.Userid is { IsValid: true } player)
+                Grant(player, new XpGrant().Add(XpPart.BombPickup, Config.Events.EventPlayerBomb.PickUpBomb));
             return HookResult.Continue;
         });
 
         RegisterEventHandler<EventBombPlanted>((@event, _) =>
         {
-            var configEvent = Config.Events.EventPlayerBomb;
-            var player = @event.Userid;
-
-            if (player != null && player.IsValid)
-                UpdateUserStatsLocal(player, Localizer["planting_bomb"], exp: configEvent.PlantedBomb);
+            if (@event.Userid is { IsValid: true } player)
+                Grant(player, new XpGrant().Add(XpPart.BombPlant, Config.Events.EventPlayerBomb.PlantedBomb));
             return HookResult.Continue;
         });
     }
-    
+
+    // ------------------------------------------------------------------ granting
+
+    /// <summary>
+    /// Applies one event's XP and stats. The parts are summed, the bonus multiplies the sum once (gains only - lost
+    /// XP is never multiplied), and the result is rounded once, half away from zero. Modules still get one
+    /// PlayerExperienceChanged per grant and may replace the amount.
+    /// </summary>
+    private void Grant(CCSPlayerController? player, XpGrant grant, string? weapon = null)
+    {
+        if (!RanksEnable.Value) return;
+        if (player == null || Config.MinPlayers > PlayersCount || IsWarmup()) return;
+        if (!Users.TryGetValue(player.SteamID, out var user)) return;
+
+        var baseExp = grant.Base;
+        BonusState? bonus = baseExp > 0 ? Bonuses.For(player) : null;
+        var multiplier = bonus?.Total ?? 1f;
+        var total = XpMath.Apply(baseExp, multiplier);
+
+        if (baseExp != 0)
+            total = RanksApi.OnPlayerExperienceChanged(player, total) ?? total;
+
+        user.value += total;
+        user.kills += grant.Stats.Kills;
+        user.deaths += grant.Stats.Deaths;
+        user.assists += grant.Stats.Assists;
+        user.round_lose += grant.Stats.RoundLose;
+        user.round_win += grant.Stats.RoundWin;
+        user.headshots += grant.Stats.Headshots;
+        user.hits += grant.Stats.Hits;
+        user.shoots += grant.Stats.Shoots;
+
+        if (user.value <= 0) user.value = Config.InitialExperiencePoints;
+
+        if (total == 0) return;
+
+        var result = new XpResult(grant, baseExp, total, multiplier, bonus?.Capped ?? false);
+        var rankChange = CheckRank(player, user);
+
+        if (Hud)
+        {
+            _feed!.Push(player, Line(result, weapon));
+            if (rankChange is { } change) AnnounceRank(player, change.From, change.To);
+            _panel!.Refresh(player);
+            _menu!.Refresh(player);
+        }
+        else
+        {
+            ChatLine(player, user, result);
+        }
+    }
+
+    /// <summary>Moves user.rank to where the XP now puts it and tells modules. Returns the levels when it moved.</summary>
+    private (int From, int To)? CheckRank(CCSPlayerController player, User user)
+    {
+        var level = GetLevelFromExperience(user.value).Level;
+        if (level == user.rank) return null;
+
+        var from = user.rank;
+        var promoted = level > from;
+        user.rank = level;
+        RanksApi.OnRankChanged(player, level, promoted);
+
+        if (!Hud)
+        {
+            var name = ReplaceColorTags(GetLevelFromExperience(user.value).Name);
+            PrintToChat(player, promoted ? Localizer["Up", name] : Localizer["Down", name]);
+        }
+
+        return (from, level);
+    }
+
+    private void AnnounceRank(CCSPlayerController player, int fromLevel, int toLevel)
+    {
+        var from = RankAt(fromLevel - 1, 0);
+        var to = RankAt(toLevel - 1, 0);
+
+        if (toLevel > fromLevel)
+            _feed!.RankUp(player, from, to);
+        else
+            _feed!.Push(player, new FeedLine("", Tag: Text("feed.rank_down", "Rank down"), Tag2: to.Name, Kind: FeedKind.RankDown));
+
+        _panel!.RankChanged(player);
+    }
+
+    private FeedLine Line(XpResult r, string? weapon)
+    {
+        var g = r.Grant;
+
+        if (r.Total < 0)
+        {
+            var icons = g.Has(XpPart.Death) || g.Has(XpPart.Suicide) ? new[] { "sk" } : null;
+            return new FeedLine(HudFormat.Signed(r.Total), Tag: Tag(g.Lead), Kind: FeedKind.Loss, Icons: icons);
+        }
+
+        var kill = g.Has(XpPart.Kill);
+        var list = new List<string>();
+        if (kill)
+        {
+            if (g.Has(XpPart.Headshot)) list.Add("hs");
+            if (g.Has(XpPart.Wallbang)) list.Add("wb");
+            if (g.Has(XpPart.Noscope)) list.Add("ns");
+            if (g.Has(XpPart.Blind)) list.Add("bl");
+            if (g.Has(XpPart.Smoke)) list.Add("sm");
+            if (weapon == "knife") list.Add("kn");
+        }
+
+        return new FeedLine(
+            HudFormat.Signed(r.Total),
+            Original: r.Boosted ? HudFormat.Signed(r.Base) : "",
+            Chip: r.Boosted ? HudFormat.Multiplier(r.Multiplier) : "",
+            Max: r.Boosted && r.Capped,
+            Tag: kill ? "" : Tag(g.Lead),
+            Kind: r.Boosted ? FeedKind.Bonus : FeedKind.Plain,
+            Icons: list);
+    }
+
+    private string Tag(XpPart part) => part switch
+    {
+        XpPart.Assist => Text("feed.assist", "Assist"),
+        XpPart.Death => Text("feed.death", "Death"),
+        XpPart.Suicide => Text("feed.suicide", "Suicide"),
+        XpPart.TeamKill => Text("feed.teamkill", "Team kill"),
+        XpPart.Mvp => Text("feed.mvp", "MVP"),
+        XpPart.RoundWin => Text("feed.round_win", "Round won"),
+        XpPart.RoundLoss => Text("feed.round_loss", "Round lost"),
+        XpPart.BombDrop => Text("feed.bomb_drop", "Bomb dropped"),
+        XpPart.BombDefuse => Text("feed.bomb_defuse", "Defused"),
+        XpPart.BombPickup => Text("feed.bomb_pickup", "Bomb picked up"),
+        XpPart.BombPlant => Text("feed.bomb_plant", "Planted"),
+        _ => "",
+    };
+
+    /// <summary>Hud.Enabled = false: the old chat line, now one per event instead of one per part.</summary>
+    private void ChatLine(CCSPlayerController player, User user, XpResult r)
+    {
+        if (!Config.ShowExperienceMessages) return;
+
+        var label = r.Grant.Lead switch
+        {
+            XpPart.Kill => Localizer["PerKill"],
+            XpPart.Assist => Localizer["AssistingInAKill"],
+            XpPart.Death => Localizer["PerDeath"],
+            XpPart.Suicide => Localizer["suicide"],
+            XpPart.TeamKill => Localizer["KillingAnAlly"],
+            XpPart.Mvp => Localizer["Mvp"],
+            XpPart.RoundWin => Localizer["WinningRound"],
+            XpPart.RoundLoss => Localizer["LosingRound"],
+            XpPart.BombDrop => Localizer["dropping_bomb"],
+            XpPart.BombDefuse => Localizer["defusing_bomb"],
+            XpPart.BombPickup => Localizer["raising_bomb"],
+            XpPart.BombPlant => Localizer["planting_bomb"],
+            _ => Localizer["PerKill"],
+        };
+        var bonus = r.Boosted ? $" \x10{HudFormat.Multiplier(r.Multiplier)}" : "";
+        var rank = RankFor(user.value);
+        var next = rank.Next is { } n ? $"{Localizer["next_level", n.Value - user.value]}" : string.Empty;
+
+        Server.NextFrame(() => PrintToChat(player,
+            $"{(r.Total > 0 ? "\x0C+" : "\x02")}{r.Total} XP{bonus} \x08{label} {next}"));
+    }
+
+    // ------------------------------------------------------------------ ranks
+
+    private void BuildLadder()
+    {
+        _ladder = Config.Ranks
+            .Select((pair, order) => (Name: StripColors(pair.Key), pair.Value, Order: order))
+            .OrderBy(r => r.Value)
+            .ThenBy(r => r.Order)
+            .Select(r => (r.Name, r.Value))
+            .ToList();
+    }
+
+    private static string StripColors(string name) => Regex.Replace(name, @"\{[A-Za-z]+}", "").Trim();
+
+    /// <summary>
+    /// The HUD's view of the ladder. The index follows the level number the scoreboard uses (level N is the Nth entry
+    /// by threshold), and the name is that entry's, so the name always matches the icon beside it.
+    /// </summary>
+    public RankInfo RankFor(long xp)
+    {
+        var level = GetLevelFromExperience(xp).Level;
+        return RankAt(level - 1, xp);
+    }
+
+    private RankInfo RankAt(int index, long xp)
+    {
+        if (_ladder.Count == 0) return new RankInfo(0, "", 0, null, 1, _ladder);
+
+        index = Math.Clamp(index, 0, _ladder.Count - 1);
+        var current = _ladder[index];
+        (string Name, int Value)? next = index + 1 < _ladder.Count ? _ladder[index + 1] : null;
+
+        var progress = next is { } n && n.Value > current.Value
+            ? Math.Clamp((xp - current.Value) / (double)(n.Value - current.Value), 0, 1)
+            : 1;
+
+        return new RankInfo(index, current.Name, current.Value, next, progress, _ladder);
+    }
+
+    public (string Name, int Level) GetLevelFromExperience(long experience)
+    {
+        foreach (var rank in Config.Ranks.OrderByDescending(pair => pair.Value))
+        {
+            if (experience >= rank.Value)
+            {
+                return (rank.Key, Config.Ranks.Count(pair => pair.Value <= rank.Value));
+            }
+        }
+
+        return (string.Empty, 0);
+    }
+
+    // ------------------------------------------------------------------ old menus (Hud.Enabled = false)
+
     private void CreateMenu()
     {
         AddCommand("css_lvl", "", (player, _) =>
         {
             if (player == null) return;
+
+            if (Hud)
+            {
+                _menu!.Open(player, RankMenu.TabOverview);
+                return;
+            }
 
             var title = Localizer["menu.title"];
             var menu = new CenterHtmlMenu(title, this);
@@ -519,7 +893,7 @@ public class Ranks : BasePlugin
             menu.Open(player);
         });
     }
-    
+
     private async Task ResetRank(int slot, string name, SteamID steamId)
     {
         var steamId2 = steamId.SteamId2.ReplaceFirstCharacter();
@@ -534,104 +908,16 @@ public class Ranks : BasePlugin
         _loginTime[slot] = DateTime.UtcNow;
     }
 
-    private void UpdateUserStatsLocal(CCSPlayerController? player, string msg = "",
-        int exp = 0, int kills = 0, int death = 0, int assist = 0,
-        int shoots = 0, int hits = 0, int headshots = 0, int roundwin = 0, int roundlose = 0)
-    {
-        if (!RanksEnable.Value) return;
-
-        var isWarmup = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").First().GameRules!
-            .WarmupPeriod;
-        if (player == null || Config.MinPlayers > PlayersCount || isWarmup) return;
-
-        if (!Users.TryGetValue(player.SteamID, out var user)) return;
-
-        var newExp = RanksApi.OnPlayerExperienceChanged(player, exp);
-        exp = newExp ?? exp;
-        user.value += exp;
-
-        user.kills += kills;
-        user.deaths += death;
-        user.assists += assist;
-        user.round_lose += roundlose;
-        user.round_win += roundwin;
-        user.headshots += headshots;
-        user.hits += hits;
-        user.shoots += shoots;
-
-        if (user.value <= 0) user.value = Config.InitialExperiencePoints;
-
-        var nextXp = GetExperienceToNextLevel(player);
-        if (exp != 0 && Config.ShowExperienceMessages)
-        {
-            Server.NextFrame(() => PrintToChat(player,
-                $"{(exp > 0 ? "\x0C+" : "\x02")}{exp} XP \x08{msg} {(nextXp == 0 ? string.Empty : $"{Localizer["next_level", nextXp]}")}"));
-        }
-    }
-
-    public (string Name, int Level) GetLevelFromExperience(long experience)
-    {
-        foreach (var rank in Config.Ranks.OrderByDescending(pair => pair.Value))
-        {
-            if (experience >= rank.Value)
-            {
-                return (rank.Key, Config.Ranks.Count(pair => pair.Value <= rank.Value));
-            }
-        }
-
-        return (string.Empty, 0);
-    }
-
-    private long GetExperienceToNextLevel(CCSPlayerController player)
-    {
-        if (!Users.TryGetValue(player.SteamID, out var user)) return 0;
-
-        var currentExperience = user.value;
-        foreach (var (_, requiredExperience) in Config.Ranks.OrderBy(pair => pair.Value))
-        {
-            if (currentExperience < requiredExperience)
-            {
-                var experienceToNextLevel = requiredExperience - currentExperience;
-
-                var newLevel = GetLevelFromExperience(currentExperience);
-
-                if (newLevel.Level != user.rank)
-                {
-                    var isUpRank = newLevel.Level > user.rank;
-
-                    var newLevelName = ReplaceColorTags(newLevel.Name);
-                    PrintToChat(player, isUpRank
-                        ? Localizer["Up", newLevelName]
-                        : Localizer["Down", newLevelName]);
-
-                    user.rank = newLevel.Level;
-                    RanksApi.OnRankChanged(player, newLevel.Level, isUpRank);
-                }
-
-                return experienceToNextLevel;
-            }
-            else
-            {
-                var newLevel = GetLevelFromExperience(currentExperience);
-                user.rank = newLevel.Level;
-            }
-        }
-
-        return 0;
-    }
-
     private async Task GetUserStats(CCSPlayerController controller, SteamID steamId)
     {
         if (!Users.TryGetValue(steamId.SteamId64, out var user)) return;
 
         var totalTime = TimeSpan.FromSeconds(user.playtime);
-        //var formattedTime = totalPlayTime.ToString(@"hh\:mm\:ss");
         var formattedTime =
             $"{(totalTime.Days > 0 ? $"{Localizer["days", totalTime.Days]}, " : "")}" +
             $"{(totalTime.Hours > 0 ? $"{Localizer["hours", totalTime.Hours]}, " : "")}" +
             $"{(totalTime.Minutes > 0 ? $"{Localizer["minutes", totalTime.Minutes]}, " : "")}" +
             $"{(totalTime.Seconds > 0 ? $"{Localizer["seconds", totalTime.Seconds]}" : "")}";
-        //var currentPlayTime = (DateTime.Now - _loginTime[index]).ToString(@"hh\:mm\:ss");
         var getPlayerTop = await Database.GetPlayerRankAndTotal(steamId.SteamId2);
 
         await Server.NextFrameAsync(() =>
@@ -663,11 +949,12 @@ public class Ranks : BasePlugin
         });
     }
 
+    // ------------------------------------------------------------------ config and helpers
+
     private string BuildConnectionString()
     {
         var dbConfig = Config.Connection;
 
-        Console.WriteLine("Building connection string");
         var builder = new MySqlConnectionStringBuilder
         {
             Database = dbConfig.Database,
@@ -677,7 +964,6 @@ public class Ranks : BasePlugin
             Port = (uint)dbConfig.Port
         };
 
-        Console.WriteLine("OK!");
         return builder.ConnectionString;
     }
 
@@ -752,9 +1038,24 @@ public class Ranks : BasePlugin
             }
         };
 
+        // Only ever written when the file does not exist - a mounted config is shared by every server on the node.
         File.WriteAllText(configPath,
             JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
         return config;
+    }
+
+    /// <summary>A lang/*.json string, or the fallback when the key is missing - lang files lag behind new keys.</summary>
+    public string Text(string key, string fallback)
+    {
+        try
+        {
+            var value = Localizer[key];
+            return value.ResourceNotFound || string.IsNullOrWhiteSpace(value.Value) ? fallback : value.Value;
+        }
+        catch
+        {
+            return fallback;
+        }
     }
 
     public void PrintToChat(CCSPlayerController player, string message)
@@ -794,6 +1095,23 @@ public class Ranks : BasePlugin
         return totalTime;
     }
 
+    /// <summary>Seconds played since the last stats save, for the menu's playtime. Does not reset the clock.</summary>
+    public long SessionSeconds(int slot)
+    {
+        if (slot < 0 || slot >= _loginTime.Length) return 0;
+        var since = _loginTime[slot];
+        return since <= DateTime.MinValue.AddYears(1) ? 0 : (long)Math.Max(0, (DateTime.UtcNow - since).TotalSeconds);
+    }
+
+    /// <summary>Warmup check without a full entity scan on every shot: the rules proxy is found once per map.</summary>
+    private bool IsWarmup()
+    {
+        if (_rules is not { IsValid: true })
+            _rules = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules").FirstOrDefault();
+
+        return _rules?.GameRules?.WarmupPeriod ?? false;
+    }
+
     private int PlayersCount => Utilities.GetPlayers().Count(u => u is
         {
             IsBot: false, IsValid: true, TeamNum: not (0 or 1), PlayerPawn.Value: not null,
@@ -824,4 +1142,8 @@ public class Config
     public Dictionary<string, int> Weapon { get; init; } = null!;
     public Dictionary<string, int> Ranks { get; init; } = null!;
     public RankDb Connection { get; init; } = null!;
+
+    // Next-il
+    public BonusSettings Bonuses { get; init; } = new();
+    public HudSettings Hud { get; init; } = new();
 }

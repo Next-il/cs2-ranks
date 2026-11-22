@@ -248,6 +248,37 @@ public class Database
         return null;
     }
 
+    // Next-il: the /rank Top players tab. Steam id, name, XP and the K/D columns only.
+    internal async Task<List<Hud.RankMenu.TopRow>?> GetTopForMenu(int count)
+    {
+        try
+        {
+            await using var dbConnection = new MySqlConnection(_dbConnectionString);
+            await dbConnection.OpenAsync();
+
+            var rows = await dbConnection.QueryAsync<TopRowDb>(
+                $"SELECT `steam`, `name`, `value`, `kills`, `deaths` FROM `{_ranks.Config.TableName}` ORDER BY `value` DESC LIMIT @count",
+                new { count });
+
+            return rows.Select(r => new Hud.RankMenu.TopRow(r.steam, r.name, r.value, r.kills, r.deaths)).ToList();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+        }
+
+        return null;
+    }
+
+    private sealed class TopRowDb
+    {
+        public string steam { get; set; } = "";
+        public string name { get; set; } = "";
+        public int value { get; set; }
+        public int kills { get; set; }
+        public int deaths { get; set; }
+    }
+
     public async Task<bool> UserExists(string steamId)
     {
         try

@@ -1,0 +1,103 @@
+name: release
+
+# Next-il: our own build of [Ranks] Core. Every push to main builds the core, the shared API and the two modules our
+# servers run into one zip, Ranks-v<N>.zip, released as v<N>. The Mounts "Ranks" group installs every folder of it at
+# once, so the core, the shared API and the modules can never be on different versions.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'release' }}
+  cancel-in-progress: false
+
+env:
+  # The modules we ship. Upstream's other modules stay in the tree but are not built.
+  MODULES: Ranks_FakeRank Ranks_Tag
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Work out the next version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -e
+          # Highest v<N> across releases and tags. Upstream's v2.0.x tags don't match, so ours start at v1.
+          releases=$(gh release list --limit 1000 --json tagName --jq '.[].tagName' || true)
+          tags=$(git ls-remote --tags --refs origin | sed 's|.*refs/tags/||')
+          highest=$(printf '%s\n%s\n' "$releases" "$tags" | { grep -E '^v[0-9]+$' || true; } | sed 's/^v//' | sort -n | tail -1)
+          next=$(( ${highest:-0} + 1 ))
+          echo "tag=v${next}" >> "$GITHUB_OUTPUT"
+          echo "number=${next}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: Ranks
+        run: |
+          set -e
+          props="-c Release --nologo -p:Version=${{ steps.version.outputs.number }}.0.0"
+          dotnet build RanksApi/RanksApi.csproj $props -o ../build/RanksApi
+          dotnet build Ranks/Ranks.csproj $props -o ../build/Ranks
+          for m in $MODULES; do dotnet build "Modules/$m/$m.csproj" $props -o "../build/$m"; done
+
+      # One folder per mount rule, each laid out as it sits on the server. An allowlist on purpose: CounterStrikeSharp's
+      # own dlls must never ship next to a plugin, and RanksApi.dll / VipCoreApi.dll live only in shared/ - a copy in a
+      # plugin folder gives that plugin its own interface type and the capability lookup fails.
+      - name: Stage release layout
+        run: |
+          set -e
+          mkdir -p out/Ranks out/RanksApi
+          cp build/Ranks/{Ranks.dll,Ranks.deps.json,Ranks.pdb,PanoramaManager.dll,Dapper.dll,MySqlConnector.dll} out/Ranks/
+          cp -r Ranks/Ranks/lang out/Ranks/lang
+          cp build/RanksApi/{RanksApi.dll,RanksApi.deps.json,RanksApi.pdb} out/RanksApi/
+          for m in $MODULES; do
+            mkdir -p "out/$m"
+            cp "build/$m/$m.dll" "build/$m/$m.deps.json" "build/$m/$m.pdb" "out/$m/"
+          done
+
+      - name: Verify the layout
+        run: |
+          set -e
+          test -f out/Ranks/Ranks.dll
+          test -f out/Ranks/PanoramaManager.dll
+          test -f out/Ranks/lang/en.json
+          test -f out/RanksApi/RanksApi.dll
+          for m in $MODULES; do test -f "out/$m/$m.dll"; done
+          if find out -name 'CounterStrikeSharp.API.dll' | grep -q . \
+             || find out -name 'VipCoreApi.dll' | grep -q . \
+             || find out -name 'RanksApi.dll' -not -path 'out/RanksApi/*' | grep -q .; then
+            echo "::error::A host or shared dll ended up in a plugin folder"
+            exit 1
+          fi
+          find out -type f | sort
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ranks
+          path: out/
+
+      - name: Release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -e
+          tag="${{ steps.version.outputs.tag }}"
+          (cd out && zip -qr "../Ranks-$tag.zip" . -x '*.DS_Store')
+          gh release create "$tag" "Ranks-$tag.zip" --target "${{ github.sha }}" --title "$tag" --generate-notes

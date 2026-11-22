@@ -1,0 +1,284 @@
+/*
+    ranks_feed - the XP feed and the RANK UP banner. Include hud_shared and ranks_shared first.
+
+    Signed off as the review page's XP feed: on the right under the kill feed by default, one line per kill, toast
+    style. A line slides in from off the screen with a fade and a blur (fast, 0.15s), stays, then slides back out the
+    same way (0.28s) and its slot collapses; the slots below glide up on their position transition.
+
+    NOTHING CLIPS ON THE WAY IN. hud-screen, the root, the stack and each slot are noclip, so a row may start 420px
+    off its resting place, past the screen edge.
+
+    UNVERIFIED IN GAME: whether blur transitions. If it does not, the row snaps sharp as it slides - still fine.
+*/
+
+.xf-root {
+    width: 100%;
+    height: 100%;
+    overflow: noclip;
+    opacity: 0;
+}
+.xf-root.show { opacity: 1; }
+
+.fill { width: fill-parent-flow(1.0); height: 1px; }
+
+/* ------------------------------------------------------------------ stack */
+
+.xf-stack {
+    flow-children: down;
+    width: fit-children;
+    height: fit-children;
+    overflow: noclip;
+}
+.xf-stack.pos-right { horizontal-align: right; vertical-align: top; margin-right: 26px; margin-top: 430px; }
+.xf-stack.pos-cross { horizontal-align: left;  vertical-align: top; margin-left: 52%;   margin-top: 598px; }
+
+.xf-slot {
+    width: fit-children;
+    height: fit-children;
+    margin-bottom: 4px;
+    overflow: noclip;
+    transition-property: position;
+    transition-duration: 0.24s;
+    transition-timing-function: ease-out;
+}
+.xf-stack.pos-right .xf-slot { horizontal-align: right; }
+
+/* ------------------------------------------------------------------ row */
+
+.xf-row {
+    flow-children: right;
+    width: fit-children;
+    height: 31px;
+    padding: 0px 11px 0px 10px;
+    background-color: #0b0f14bd;
+    border-left: 2px solid #ffffff59;
+
+    opacity: 0;
+    blur: gaussian(7.0);
+    transform: translateX(420px);
+    transition-property: opacity, transform, blur;
+    transition-duration: 0.28s;
+    transition-timing-function: ease-out;
+}
+.xf-stack.pos-cross .xf-row { transform: translateX(70px); }
+
+/* Entry is quicker than the exit: the transition on the state being entered is the one that plays. */
+.xf-row.show,
+.xf-stack.pos-cross .xf-row.show {
+    opacity: 1;
+    blur: gaussian(0.0);
+    transform: translateX(0px);
+    transition-duration: 0.15s;
+}
+
+.xf-row.bonus    { border-left-color: #f0a531; }
+.xf-row.loss     { height: 25px; border-left-color: #e8543f; }
+.xf-row.note     { height: 25px; border-left-color: #ffffff59; }
+.xf-row.rankdown { height: 25px; border-left-color: #e8543f; }
+
+.xf-row Label { vertical-align: center; width: fit-children; white-space: nowrap; }
+
+/* struck-out original, only when the bonus changed the amount */
+.xf-orig {
+    visibility: collapse;
+    font-family: Stratum2 Medium Condensed;
+    font-size: 15px;
+    color: #8b939c;
+    text-decoration: line-through;
+    margin-right: 7px;
+}
+.xf-row.bonus .xf-orig { visibility: visible; }
+
+.xf-amt {
+    font-family: Stratum2 Medium Condensed;
+    font-size: 21px;
+    font-weight: bold;
+    color: #ffffff;
+    letter-spacing: 0.2px;
+}
+.xf-row.bonus .xf-amt { color: #f0a531; }
+.xf-row.loss .xf-amt  { font-size: 15px; color: #e8543f; }
+
+.xf-unit {
+    font-family: Stratum2 Medium Condensed;
+    font-size: 13px;
+    color: #8b939c;
+    margin: 3px 0px 0px 3px;
+}
+.xf-row.bonus .xf-unit { color: #c7892a; }
+.xf-row.loss .xf-unit  { font-size: 11px; color: #b4503f; margin-top: 1px; }
+
+.xf-row.note .xf-amt, .xf-row.note .xf-unit,
+.xf-row.rankdown .xf-amt, .xf-row.rankdown .xf-unit { visibility: collapse; }
+
+/* the multiplier chip: flat gold, dark text, MAX beside it at the cap */
+.xf-chip {
+    visibility: collapse;
+    flow-children: right;
+    width: fit-children;
+    height: fit-children;
+    vertical-align: center;
+    background-color: #f0a531;
+    padding: 2px 5px 1px 5px;
+    margin-left: 8px;
+}
+.xf-row.bonus .xf-chip { visibility: visible; }
+.xf-chip-v {
+    font-family: Stratum2 Mono;
+    font-size: 10.5px;
+    font-weight: bold;
+    color: #14110a;
+}
+.xf-chip-max {
+    visibility: collapse;
+    font-family: Stratum2 Mono;
+    font-size: 8.5px;
+    font-weight: bold;
+    color: #14110acc;
+    margin-left: 4px;
+}
+.xf-row.capped .xf-chip-max { visibility: visible; }
+
+/* ASSIST, DEATH, MVP...; and the second, coloured half of a note */
+.xf-tag {
+    visibility: collapse;
+    font-family: Stratum2 Mono;
+    font-size: 9.5px;
+    color: #8b939c;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-left: 9px;
+}
+.xf-row.tagged .xf-tag { visibility: visible; }
+.xf-row.note .xf-tag, .xf-row.rankdown .xf-tag { margin-left: 0px; color: #d6dbe0; font-size: 10px; }
+
+.xf-tag2 {
+    visibility: collapse;
+    font-family: Stratum2 Mono;
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    margin-left: 6px;
+}
+.xf-row.note .xf-tag2     { visibility: visible; color: #f0a531; }
+.xf-row.rankdown .xf-tag2 { visibility: visible; color: #ff8a78; }
+
+/* kill feed icons */
+.xf-ics {
+    flow-children: right;
+    width: fit-children;
+    height: fit-children;
+    margin-left: 4px;
+    vertical-align: center;
+}
+.xf-ic {
+    visibility: collapse;
+    width: 19px;
+    height: 17px;
+    margin-left: 7px;
+    vertical-align: center;
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+}
+.xf-ic.on { visibility: visible; }
+.ic-hs { background-image: url("s2r://panorama/images/hud/deathnotice/icon_headshot.vsvg"); width: 17px; }
+.ic-wb { background-image: url("s2r://panorama/images/hud/deathnotice/penetrate.vsvg"); width: 17px; }
+.ic-ns { background-image: url("s2r://panorama/images/hud/deathnotice/noscope.vsvg"); width: 17px; }
+.ic-bl { background-image: url("s2r://panorama/images/hud/deathnotice/blind_kill.vsvg"); width: 17px; }
+.ic-sm { background-image: url("s2r://panorama/images/hud/deathnotice/smoke_kill.vsvg"); width: 17px; }
+.ic-kn { background-image: url("s2r://panorama/images/icons/equipment/knife.vsvg"); width: 41px; }
+.ic-sk { background-image: url("s2r://panorama/images/hud/deathnotice/icon_suicide.vsvg"); width: 14px; height: 14px; opacity: 0.8; }
+
+/* ------------------------------------------------------------------ RANK UP */
+
+.ru {
+    flow-children: down;
+    width: 640px;
+    height: fit-children;
+    horizontal-align: center;
+    vertical-align: top;
+    margin-top: 226px;
+    padding: 14px 0px 18px 0px;
+    background-color: gradient(linear, 0% 0%, 100% 0%, from(#0b0f1400), color-stop(0.5, #0b0f14d9), to(#0b0f1400));
+
+    opacity: 0;
+    transform: translateY(-14px);
+    transition-property: opacity, transform;
+    transition-duration: 0.3s;
+    transition-timing-function: ease-out;
+}
+.ru.show {
+    opacity: 1;
+    transform: translateY(0px);
+    transition-duration: 0.25s;
+}
+
+.ru-eyebrow {
+    flow-children: right;
+    width: fit-children;
+    horizontal-align: center;
+}
+.ru-line {
+    width: 46px;
+    height: 2px;
+    vertical-align: center;
+    background-color: #f0a531;
+}
+.ru-title {
+    width: fit-children;
+    font-family: Stratum2 Medium Condensed;
+    font-size: 22px;
+    font-weight: bold;
+    color: #f0a531;
+    text-transform: uppercase;
+    letter-spacing: 6px;
+    margin: 0px 10px 0px 16px;
+    vertical-align: center;
+}
+
+.ru-icon {
+    width: 178px;
+    height: 72px;
+    horizontal-align: center;
+    margin-top: 12px;
+}
+
+@keyframes ru-pop {
+    0%   { opacity: 0;   brightness: 4.0; transform: scale3d( 1.6, 1.6, 1.0 ); }
+    55%  { opacity: 1;   brightness: 1.6; transform: scale3d( 0.96, 0.96, 1.0 ); }
+    100% { opacity: 1;   brightness: 1.0; transform: scale3d( 1.0, 1.0, 1.0 ); }
+}
+.ru.show .ru-icon {
+    animation-name: ru-pop;
+    animation-duration: 0.6s;
+    animation-timing-function: ease-out;
+    animation-iteration-count: 1;
+}
+
+.ru-name {
+    width: fit-children;
+    horizontal-align: center;
+    font-family: Stratum2 Medium Condensed;
+    font-size: 34px;
+    font-weight: bold;
+    color: #ffffff;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-top: 8px;
+}
+
+.ru-from {
+    flow-children: right;
+    width: fit-children;
+    horizontal-align: center;
+    margin-top: 2px;
+}
+.ru-old, .ru-new, .ru-arrow {
+    width: fit-children;
+    font-family: Stratum2 Regular;
+    font-size: 14px;
+    color: #b9c0c7;
+    vertical-align: center;
+}
+.ru-arrow { color: #f0a531; margin: 0px 8px 0px 8px; }
