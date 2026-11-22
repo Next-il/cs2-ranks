@@ -186,7 +186,7 @@ internal sealed class RankMenu : IDisposable
             _panel.SetClassFor(player, tile, "hidden", false);
             _panel.SetClassFor(player, tile, "cur", i == rank.Index);
             _panel.SetClassFor(player, tile, "locked", i > rank.Index);
-            _classes.Set(_panel, player, $"{tile}_icon", HudFormat.Icon(i), HudFormat.Icons);
+            _classes.Set(_panel, player, $"{tile}_icon", HudFormat.Icon(i + 1), HudFormat.Icons);
             _panel.SetVariableFor(player, $"{tile}_n", name);
             _panel.SetVariableFor(player, $"{tile}_x", HudFormat.Number(value) + " XP");
         }

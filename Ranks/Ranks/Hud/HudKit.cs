@@ -85,7 +85,8 @@ public sealed record RankInfo(
 {
     /// <summary>
     /// The skill-group art, the same mapping the scoreboard's Ranks_FakeRank uses: rank N in ranks.json is
-    /// skillgroup N-1, so the 1st entry is skillgroup0 (unranked) and Global is skillgroup18.
+    /// skillgroup N, so the 1st entry (Silver I) is skillgroup1, Global is skillgroup18 and Almighty skillgroup23.
+    /// ranks.json has no "None" entry, so skillgroup0 (unranked) is never drawn.
     /// </summary>
-    public int Icon => Math.Clamp(Index, 0, HudFormat.MaxIcon);
+    public int Icon => Math.Clamp(Index + 1, 0, HudFormat.MaxIcon);
 }
