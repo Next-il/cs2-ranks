@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Entities;
@@ -11,7 +11,7 @@ public class RanksTag : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "[Ranks] Tag";
-    public override string ModuleVersion => "v1.0.0";
+    public override string ModuleVersion => "v1.0.1-next";
 
     private IRanksApi? _api;
 
@@ -25,8 +25,13 @@ public class RanksTag : BasePlugin
             foreach (var player in Utilities.GetPlayers().Where(u => u.IsValid))
             {
                 var level = _api.GetLevelFromExperience(_api.GetPlayerExperience(player));
-                
-                player.Clan = $"[{Regex.Replace(level.Name, @"\{[A-Za-z]+}", "")}]";
+
+                // Next-il: the bare rank name. The scoreboard now draws its own [ ] around a clan tag, so the
+                // old "[Gold Nova]" showed as "[[Gold Nova]]" (owner, 2026-11-22). Only sent when it changed.
+                var tag = Regex.Replace(level.Name, @"\{[A-Za-z]+}", "").Trim();
+                if (player.Clan == tag) continue;
+
+                player.Clan = tag;
                 Utilities.SetStateChanged(player, "CCSPlayerController", "m_szClan");
             }
         }, TimerFlags.REPEAT);

@@ -11,6 +11,8 @@
 
     UNVERIFIED IN GAME, with the fallback if it does not work:
       ui-scale (size-s/m/l)  ->  three width/font sets on .rp-card instead
+
+    SIZES (owner, 11-22): M, the default, is the old S (85%). S is new and smaller (72%). L is the old M (100%).
       skewx() on .rp-bar     ->  a parallelogram segment image in the addon instead of the transform
 */
 
@@ -37,12 +39,12 @@
     height: fit-children;
     overflow: noclip;
 }
-.rp-scale.size-s { ui-scale: 85%; }
-.rp-scale.size-m { ui-scale: 100%; }
-.rp-scale.size-l { ui-scale: 120%; }
+.rp-scale.size-s { ui-scale: 72%; }
+.rp-scale.size-m { ui-scale: 85%; }
+.rp-scale.size-l { ui-scale: 100%; }
 
 .rp-card {
-    width: 360px;
+    width: 344px;
     flow-children: down;
 }
 
@@ -61,14 +63,13 @@
     letter-spacing: 1.5px;
     vertical-align: center;
 }
-.rp-title { margin: 11px 16px 0px 16px; }
 
 /* ------------------------------------------------------------------ ranks + bar */
 
 .rp-ranks {
     flow-children: right;
     width: 100%;
-    padding: 10px 16px 0px 16px;
+    padding: 10px 12px 0px 12px;
 }
 
 .rp-rank {
@@ -80,6 +81,8 @@
 .rp-icon {
     width: 46px;
     height: 19px;
+    /* The badge SVGs are 32x13; without this Panorama rasterizes them at 32x13 and stretches the bitmap. ~2x the drawn size, so 1440p and 4K stay sharp. */
+    background-texture-size: 128px 52px;
 }
 
 /* items-end: the name sits on the icon's bottom line */
@@ -104,9 +107,9 @@
 .rp-root.maxed .rp-rank-next .rp-rname { color: #f0a531; }
 
 .rp-bar {
-    width: 322px;
+    width: 316px;
     height: 10px;
-    margin: 9px 19px 0px 19px;
+    margin: 8px 14px 0px 14px;
     transform: skewx( -24deg );
 }
 
@@ -114,7 +117,7 @@
     flow-children: right;
     width: fit-children;
     horizontal-align: center;
-    margin: 5px 0px 12px 0px;
+    margin: 4px 0px 9px 0px;
 }
 .rp-xp-now, .rp-xp-need {
     width: fit-children;
@@ -126,7 +129,7 @@
 .rp-xp-now { color: #c9ced4; font-weight: bold; margin-right: 3px; }
 
 /* the rank-up flash on the current icon; two names so the server can restart it */
-@keyframes rp-swap {
+@keyframes 'rp-swap' {
     0%   { brightness: 3.0; transform: scale3d( 1.35, 1.35, 1.0 ); }
     100% { brightness: 1.0; transform: scale3d( 1.0, 1.0, 1.0 ); }
 }
@@ -134,7 +137,7 @@
 .rp-icon.swap-b { animation-name: rp-swap; animation-duration: 0.56s; animation-timing-function: ease-out; animation-iteration-count: 1; }
 
 .rp-sep {
-    width: 328px;
+    width: 320px;
     height: 1px;
     horizontal-align: center;
     background-color: #ffffff10;
@@ -145,13 +148,13 @@
 .rp-bonus {
     flow-children: down;
     width: 100%;
-    padding: 10px 16px 11px 16px;
+    padding: 8px 12px 8px 12px;
 }
 
 .rp-bonus-head {
     flow-children: right;
     width: 100%;
-    margin-bottom: 3px;
+    margin-bottom: 1px;
 }
 
 .rp-total {
@@ -184,7 +187,7 @@
     flow-children: right;
     width: 100%;
     height: 19px;
-    margin-top: 6px;
+    margin-top: 3px;
 }
 .rp-dot {
     width: 6px;
@@ -247,7 +250,7 @@
 .rp-foot {
     flow-children: right;
     width: 100%;
-    padding: 9px 16px 11px 16px;
+    padding: 7px 12px 9px 12px;
 }
 .rp-cmd {
     width: fit-children;

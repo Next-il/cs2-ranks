@@ -16,7 +16,7 @@
 		CLASSES THE SERVER TOGGLES
 		  RanksPanelRoot   pos-radar | pos-right | pos-bottom   where it sits and the edge it slides in from
 		  RanksPanelRoot   maxed                                 top rank: no next icon, the next label goes gold
-		  rp_scale         size-s | size-m | size-l              ui-scale 85% / 100% / 120%
+		  rp_scale         size-s | size-m | size-l              ui-scale 72% / 85% / 100% (m = default)
 		  rp_icon_cur      sg-0 .. sg-23, swap-a | swap-b        rank art; the swap pair restarts the rank-up flash
 		  rp_icon_next     sg-0 .. sg-23
 		  rp_fill          p0 .. p50                             progress to the next rank, 2% a step
@@ -32,7 +32,6 @@
 		<Panel id="RanksPanelRoot" class="rp-root" hittest="false">
 			<Panel id="rp_scale" class="rp-scale" hittest="false">
 				<Panel class="rp-card hud-card" hittest="false">
-					<Label class="rp-eyebrow rp-title" text="RANK" />
 					<Panel class="rp-ranks" hittest="false">
 						<Panel class="rp-rank rp-rank-cur" hittest="false">
 							<Panel id="rp_icon_cur" class="rp-icon sg" hittest="false" />

@@ -240,11 +240,13 @@
 .ru-icon {
     width: 178px;
     height: 72px;
+    /* The badge SVGs are 32x13; without this Panorama rasterizes them at 32x13 and stretches the bitmap. ~2x the drawn size, so 1440p and 4K stay sharp. */
+    background-texture-size: 448px 182px;
     horizontal-align: center;
     margin-top: 12px;
 }
 
-@keyframes ru-pop {
+@keyframes 'ru-pop' {
     0%   { opacity: 0;   brightness: 4.0; transform: scale3d( 1.6, 1.6, 1.0 ); }
     55%  { opacity: 1;   brightness: 1.6; transform: scale3d( 0.96, 0.96, 1.0 ); }
     100% { opacity: 1;   brightness: 1.0; transform: scale3d( 1.0, 1.0, 1.0 ); }

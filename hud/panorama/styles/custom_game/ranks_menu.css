@@ -92,7 +92,9 @@
 /* ------------------------------------------------------------------ overview */
 
 .ov-top { flow-children: right; width: 100%; }
-.ov-icon { width: 172px; height: 70px; vertical-align: center; margin-right: 22px; }
+/* The badge SVGs are 32x13; without background-texture-size Panorama rasterizes them at 32x13 and stretches the
+   bitmap. Each badge asks for ~2x its drawn size, so 1440p and 4K stay sharp. */
+.ov-icon { width: 172px; height: 70px; vertical-align: center; margin-right: 22px; background-texture-size: 384px 156px; }
 .ov-main { flow-children: down; width: fill-parent-flow(1.0); vertical-align: center; }
 
 .ov-name-row { flow-children: right; width: 100%; margin-top: 6px; }
@@ -297,7 +299,7 @@
 
 .tp-row .c-pos  { font-family: Stratum2 Mono; font-size: 12px; font-weight: bold; color: #8b939c; }
 .tp-row.top3 .c-pos { color: #f0a531; }
-.tp-icon { width: 46px; height: 19px; vertical-align: center; }
+.tp-icon { width: 46px; height: 19px; vertical-align: center; background-texture-size: 128px 52px; }
 .tp-row .c-name { font-family: Stratum2 Regular; font-size: 13.5px; color: #e6e9ec; text-overflow: ellipsis; }
 .tp-row .c-kd   { font-family: Stratum2 Medium Condensed; font-size: 14px; color: #8b939c; }
 .tp-row .c-xp   { font-family: Stratum2 Medium Condensed; font-size: 15px; font-weight: bold; color: #ffffff; }
@@ -333,7 +335,7 @@
     background-color: #ffffff07;
 }
 .ar:last-child { margin-right: 0px; }
-.ar-icon { width: 62px; height: 25px; horizontal-align: center; margin-top: 14px; }
+.ar-icon { width: 62px; height: 25px; horizontal-align: center; margin-top: 14px; background-texture-size: 160px 65px; }
 .ar-n {
     width: fit-children;
     horizontal-align: center;
@@ -436,9 +438,9 @@
 .mini-blk.off { opacity: 0; }
 
 .mini-size { background-color: #f0a531e6; }
-.mini-size.size-s { width: 36px; height: 27px; }
-.mini-size.size-m { width: 42px; height: 32px; }
-.mini-size.size-l { width: 50px; height: 38px; }
+.mini-size.size-s { width: 30px; height: 23px; }
+.mini-size.size-m { width: 36px; height: 27px; }
+.mini-size.size-l { width: 42px; height: 32px; }
 
 .mini-lbl {
     width: 100%;

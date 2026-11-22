@@ -128,7 +128,7 @@ def panel_xml() -> str:
 \t\tCLASSES THE SERVER TOGGLES
 \t\t  RanksPanelRoot   pos-radar | pos-right | pos-bottom   where it sits and the edge it slides in from
 \t\t  RanksPanelRoot   maxed                                 top rank: no next icon, the next label goes gold
-\t\t  rp_scale         size-s | size-m | size-l              ui-scale 85% / 100% / 120%
+\t\t  rp_scale         size-s | size-m | size-l              ui-scale 72% / 85% / 100% (m = default)
 \t\t  rp_icon_cur      sg-0 .. sg-23, swap-a | swap-b        rank art; the swap pair restarts the rank-up flash
 \t\t  rp_icon_next     sg-0 .. sg-23
 \t\t  rp_fill          p0 .. p50                             progress to the next rank, 2% a step
@@ -144,7 +144,6 @@ def panel_xml() -> str:
 \t\t<Panel id="RanksPanelRoot" class="rp-root" hittest="false">
 \t\t\t<Panel id="rp_scale" class="rp-scale" hittest="false">
 \t\t\t\t<Panel class="rp-card hud-card" hittest="false">
-\t\t\t\t\t<Label class="rp-eyebrow rp-title" text="RANK" />
 \t\t\t\t\t<Panel class="rp-ranks" hittest="false">
 \t\t\t\t\t\t<Panel class="rp-rank rp-rank-cur" hittest="false">
 \t\t\t\t\t\t\t<Panel id="rp_icon_cur" class="rp-icon sg" hittest="false" />

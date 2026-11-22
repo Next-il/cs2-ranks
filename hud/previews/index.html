@@ -156,12 +156,12 @@ body {
 .pos-radar  .rp-scale { transform-origin: 0 0; }
 .pos-right  .rp-scale { transform-origin: 100% 50%; }
 .pos-bottom .rp-scale { transform-origin: 50% 100%; }
-.size-s .rp-scale { transform: scale(.85); }
-.size-m .rp-scale { transform: scale(1); }
-.size-l .rp-scale { transform: scale(1.2); }
+.size-s .rp-scale { transform: scale(.72); }
+.size-m .rp-scale { transform: scale(.85); }
+.size-l .rp-scale { transform: scale(1); }
 
 .rp {
-  width: 360px; opacity: 0;
+  width: 344px; opacity: 0;
   transition: opacity .26s ease-out, transform .26s ease-out;
 }
 .pos-radar  .rp { transform: translateX(-440px); }
@@ -169,11 +169,10 @@ body {
 .pos-bottom .rp { transform: translateY(380px); }
 .rp.show { opacity: 1; transform: none; }
 
-.rp-head { display: flex; align-items: center; padding: 11px 16px 0; }
 .rp-eyebrow { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; flex: 1; }
 /* Ranks on one line, current left and next right, with the skewed bar under them at full width and the
    XP count centred under the bar. No box around a rank; the name sits small on the icon's bottom line. */
-.rp-prog { display: flex; flex-direction: column; padding: 10px 16px 12px; }
+.rp-prog { display: flex; flex-direction: column; padding: 10px 12px 9px; }
 .rp-ranks { display: flex; justify-content: space-between; align-items: flex-end; }
 .rp-rank { display: flex; align-items: flex-end; gap: 5px; flex: none; }
 .rp-icon { width: 46px; height: 19px; flex: none; }
@@ -182,17 +181,17 @@ body {
 .rp-rank.next .rp-icon { filter: saturate(.2); opacity: .55; }
 .rp.maxed .rp-rank.next .rp-icon { display: none; }
 .rp.maxed .rp-rank.next .rp-rname { color: var(--gold); }
-.rp-bar { position: relative; height: 10px; margin: 9px 3px 0; transform: skewX(-24deg); }
-.rp-xp { margin-top: 5px; text-align: center; font-family: var(--f-cond); font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .3px; white-space: nowrap; }
+.rp-bar { position: relative; height: 10px; margin: 8px 2px 0; transform: skewX(-24deg); }
+.rp-xp { margin-top: 4px; text-align: center; font-family: var(--f-cond); font-size: 10px; font-weight: 600; color: var(--muted); letter-spacing: .3px; white-space: nowrap; }
 .rp-xp b { color: #c9ced4; font-weight: 700; }
 .segs { position: absolute; inset: 0; display: flex; gap: 3px; }
 .segs i { flex: 1; background: #ffffff17; }
 .segs.fill { clip-path: inset(0 calc(100% - var(--p, 0%)) 0 0); transition: clip-path .7s cubic-bezier(.2,.7,.2,1); }
 .segs.fill i { background: var(--gold); }
 
-.rp-sep { height: 1px; background: #ffffff10; margin: 0 16px; }
-.rp-bonus { padding: 10px 16px 11px; display: flex; flex-direction: column; gap: 6px; }
-.rp-bonus-head { display: flex; align-items: center; margin-bottom: 1px; }
+.rp-sep { height: 1px; background: #ffffff10; margin: 0 12px; }
+.rp-bonus { padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; }
+.rp-bonus-head { display: flex; align-items: center; margin-bottom: 0; }
 .rp-bonus-head .rp-eyebrow { flex: 1; }
 .rp-total { font-family: var(--f-cond); font-weight: 700; font-size: 15px; color: var(--muted); letter-spacing: .3px; }
 .rp-total.on { color: var(--gold); }
@@ -210,7 +209,7 @@ body {
 .rp-b.on .name { color: #fff; }
 .rp-b.on .val { font-family: var(--f-cond); font-weight: 700; font-size: 15px; color: var(--gold); }
 .rp-b .soon { font-family: var(--f-mono); font-size: 9px; font-weight: 700; letter-spacing: 1px; color: var(--muted); background: #ffffff10; padding: 2px 6px; }
-.rp-foot { display: flex; gap: 6px; align-items: baseline; padding: 9px 16px 11px; }
+.rp-foot { display: flex; gap: 6px; align-items: baseline; padding: 7px 12px 9px; }
 .rp-foot .cmd { font-family: var(--f-mono); font-size: 11px; font-weight: 700; color: var(--gold); }
 .rp-foot .txt { font-size: 11.5px; color: var(--muted); }
 
@@ -402,7 +401,7 @@ body {
 .mini .blk.pos-radar  { left: 4px; top: 45px; }
 .mini .blk.pos-right  { right: 4px; top: 50%; transform: translateY(-50%); }
 .mini .blk.pos-bottom { left: 50%; bottom: 17px; transform: translateX(-50%); }
-.mini .blk.size-s { width: 36px; height: 27px; } .mini .blk.size-m { width: 42px; height: 32px; } .mini .blk.size-l { width: 50px; height: 38px; }
+.mini .blk.size-s { width: 30px; height: 23px; } .mini .blk.size-m { width: 36px; height: 27px; } .mini .blk.size-l { width: 42px; height: 32px; }
 .mini .blk.off { opacity: 0; }
 .mini .lbl { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-family: var(--f-mono); font-size: 9px; color: var(--faint); letter-spacing: .6px; text-transform: uppercase; }
 
@@ -464,9 +463,6 @@ body {
           <div class="rp-pos pos-radar size-m" id="rp_pos">
             <div class="rp-scale">
               <div class="rp card" id="rp">
-                <div class="rp-head">
-                  <div class="rp-eyebrow" data-var="rp_eyebrow">Rank</div>
-                </div>
                 <div class="rp-prog">
                   <div class="rp-ranks">
                     <div class="rp-rank cur"><div class="rp-icon cur sg" id="rp_icon_cur"></div><div class="rp-rname" data-var="rp_cur">Nova III</div></div>
