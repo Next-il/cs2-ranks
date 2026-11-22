@@ -50,7 +50,7 @@
 
 /* hud-card's border is the same gold; the fill is the lighter toast alpha, this is read at a glance. */
 .rp-card.hud-card {
-    background-color: gradient(linear, 0% 0%, 0% 100%, from(#12171ee2), to(#0b0f14ec));
+    background-color: gradient(linear, 0% 0%, 0% 100%, from(#12171ec6), to(#0b0f14d0));
 }
 
 .fill { width: fill-parent-flow(1.0); height: 1px; }
