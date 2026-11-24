@@ -14,14 +14,11 @@ public class RanksFakeRank : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "[Ranks] Fake Rank";
-    public override string ModuleVersion => "v1.0.2";
+    public override string ModuleVersion => "v1.0.3";
 
     private Config _config;
     private IRanksApi? _api;
     private int _maxRank;
-
-    /// <summary>What each slot's controller last networked: (rank type, value).</summary>
-    private readonly Dictionary<int, (sbyte Type, int Value)> _sent = new();
 
     /// <summary>IN_SCORE (1 << 33): the old check was Buttons.ToString() containing its digits, 8589934592.</summary>
     private const ulong ScoreboardButton = 1UL << 33;
@@ -55,11 +52,11 @@ public class RanksFakeRank : BasePlugin
                     rankValue = _config.FakeRank[rank > _maxRank ? _maxRank : rank <= 0 ? 1 : rank];
                 }
 
-                // Written only when it changes, and marked changed so it is networked. A plain write is
-                // not sent on its own: clients kept whatever the controller carried at their last full
-                // update, so the scoreboard showed old or missing badges (2026-11-24, CS2 1.42.0.1).
-                var slot = player.Slot;
-                if (!_sent.TryGetValue(slot, out var sent) || sent.Type != rankType || sent.Value != rankValue)
+                // Compared with what the controller holds NOW, not with what was last written: the game
+                // resets these fields on its own (round start, team change), so a write-once cache left the
+                // badge blank after the first reset (2026-11-24, v6). Any drift is rewritten and marked
+                // changed, so it is networked; an unchanged tick writes nothing.
+                if (player.CompetitiveRankType != rankType || player.CompetitiveRanking != rankValue || player.CompetitiveWins != 111)
                 {
                     player.CompetitiveWins = 111;
                     player.CompetitiveRankType = rankType;
@@ -67,7 +64,6 @@ public class RanksFakeRank : BasePlugin
                     Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveWins");
                     Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRankType");
                     Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRanking");
-                    _sent[slot] = (rankType, rankValue);
                 }
 
                 // Holding TAB: the scoreboard shows every rank, not only the viewer's own
@@ -80,18 +76,6 @@ public class RanksFakeRank : BasePlugin
                 var msg = UserMessage.FromPartialName("CCSUsrMsg_ServerRankRevealAll");
                 msg.Send(filter);
             }
-        });
-
-        // A slot's next player starts with nothing sent
-        RegisterEventHandler<EventPlayerConnectFull>((@event, _) =>
-        {
-            if (@event.Userid is { IsValid: true } p) _sent.Remove(p.Slot);
-            return HookResult.Continue;
-        });
-        RegisterEventHandler<EventPlayerDisconnect>((@event, _) =>
-        {
-            if (@event.Userid is { IsValid: true } p) _sent.Remove(p.Slot);
-            return HookResult.Continue;
         });
 
         AddCommand("css_fakerank_reload", "", (player, info) =>
