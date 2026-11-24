@@ -5,7 +5,7 @@
     <PackageReference Include="Dapper" Version="2.1.35" />
     <PackageReference Include="MySqlConnector" Version="2.3.7" />
     <!-- Same pin as every other HUD plugin of ours, so one server never runs two library builds. -->
-    <PackageReference Include="PanoramaManager" Version="0.4.3" />
+    <PackageReference Include="PanoramaManager" Version="0.4.5" />
   </ItemGroup>
 
   <ItemGroup>
