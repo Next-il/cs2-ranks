@@ -16,7 +16,7 @@ public class RanksFakeRank : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "[Ranks] Fake Rank";
-    public override string ModuleVersion => "v1.0.4";
+    public override string ModuleVersion => "v1.0.5";
 
     private Config _config;
     private IRanksApi? _api;
@@ -27,6 +27,9 @@ public class RanksFakeRank : BasePlugin
 
     private const int Wins = 111;
     private const int MaxSlots = 65;
+
+    /// <summary>The reveal to every player, about once a second at 64 tick.</summary>
+    private const int RevealEveryTicks = 64;
 
     /// <summary>This tick's players and the badge each must show, filled in OnTick, re-pinned after entity think.</summary>
     private readonly List<(CCSPlayerController Player, sbyte Type, int Ranking)> _targets = new(MaxSlots);
@@ -80,6 +83,7 @@ public class RanksFakeRank : BasePlugin
         _targets.Clear();
         Array.Clear(_seen);
         var filter = new RecipientFilter();
+        var revealAll = Server.TickCount % RevealEveryTicks == 0;
 
         foreach (var player in Utilities.GetPlayers()
                      .Where(u => u is { IsValid: true, Connected: PlayerConnectedState.Connected, IsBot: false, IsHLTV: false }))
@@ -104,15 +108,19 @@ public class RanksFakeRank : BasePlugin
             if (Pin(player, rankType, rankValue))
                 _fixedInTick++;
 
-            // The reveal is sent when TAB goes down, like the Metamod FakeRanks Reveal All. v1.0.3 sent it on
-            // every tick TAB was held (64 a second per player), and each one makes the client redraw every
-            // badge from whatever values it holds at that instant.
+            // The reveal goes to everyone once a second, and to a player the tick their TAB goes down. With only
+            // the TAB press (v1.0.4) the badges blanked for about two frames on every open - the client hides
+            // other players' ranks until the reveal reaches it, one round trip after the press (owner's clip,
+            // Retakes #6, 2026-11-25). Sent ahead, the scoreboard can open already revealed. A reveal only
+            // redraws badges whose values changed, and since v1.0.4 they no longer change, so the extra ones are
+            // harmless - v1.0.3's flicker came from the game's resets reaching clients, which every reveal
+            // (64 a second while TAB was held) then repainted.
             var slot = player.Slot;
             if (slot is < 0 or >= MaxSlots) continue;
 
             _seen[slot] = true;
             var tab = ((ulong)player.Buttons & ScoreboardButton) != 0;
-            if (tab && !_tabDown[slot])
+            if (revealAll || (tab && !_tabDown[slot]))
                 filter.Add(player);
             _tabDown[slot] = tab;
         }
