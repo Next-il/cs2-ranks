@@ -1,5 +1,7 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Core.Attributes;
@@ -14,7 +16,7 @@ public class RanksFakeRank : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "[Ranks] Fake Rank";
-    public override string ModuleVersion => "v1.0.3";
+    public override string ModuleVersion => "v1.0.4";
 
     private Config _config;
     private IRanksApi? _api;
@@ -23,6 +25,21 @@ public class RanksFakeRank : BasePlugin
     /// <summary>IN_SCORE (1 << 33): the old check was Buttons.ToString() containing its digits, 8589934592.</summary>
     private const ulong ScoreboardButton = 1UL << 33;
 
+    private const int Wins = 111;
+    private const int MaxSlots = 65;
+
+    /// <summary>This tick's players and the badge each must show, filled in OnTick, re-pinned after entity think.</summary>
+    private readonly List<(CCSPlayerController Player, sbyte Type, int Ranking)> _targets = new(MaxSlots);
+
+    /// <summary>Whether each slot held TAB last tick: the reveal goes out on the press, not every tick it is held.</summary>
+    private readonly bool[] _tabDown = new bool[MaxSlots];
+    private readonly bool[] _seen = new bool[MaxSlots];
+
+    // How often the game's own values had to be overwritten, logged once a minute: where the game resets
+    // the badge (before or during entity think) is what decides whether a write reaches the snapshot.
+    private int _fixedInTick, _fixedAfterThink;
+    private DateTime _nextReport = DateTime.UtcNow.AddMinutes(1);
+
     public override void OnAllPluginsLoaded(bool hotReload)
     {
         _api = IRanksApi.Capability.Get();
@@ -30,51 +47,20 @@ public class RanksFakeRank : BasePlugin
 
         _config = _api.LoadConfig<Config>("ranks_fakerank");
         _maxRank = _config.FakeRank.Max(f => f.Key);
-        RegisterListener<Listeners.OnTick>(() =>
+
+        RegisterListener<Listeners.OnTick>(OnTick);
+
+        // v1.0.4: OnTick runs before the entities think, and the game resets these fields as often as every
+        // tick. A reset that lands after our OnTick write goes out in that tick's snapshot, so clients saw the
+        // game's value and ours in turn - the whole scoreboard column flickering between ranks and the "no
+        // rank" icon (2026-11-25). Pinning again after entity think makes ours the last write before the
+        // snapshot. The unchanged case is three reads.
+        RegisterListener<Listeners.OnServerPostEntityThink>(() =>
         {
-            var filter = new RecipientFilter();
-            foreach (var player in Utilities.GetPlayers()
-                         .Where(u => u is { IsValid: true, Connected: PlayerConnectedState.Connected, IsBot: false, IsHLTV: false }))
+            foreach (var (player, type, ranking) in _targets)
             {
-                sbyte rankType;
-                int rankValue;
-
-                if (_config.Type is 0)
-                {
-                    rankType = 11;
-                    rankValue = _api.GetPlayerExperience(player);
-                }
-                else
-                {
-                    rankType = 12;
-                    var rank = _api.GetPlayerRank(player);
-
-                    rankValue = _config.FakeRank[rank > _maxRank ? _maxRank : rank <= 0 ? 1 : rank];
-                }
-
-                // Compared with what the controller holds NOW, not with what was last written: the game
-                // resets these fields on its own (round start, team change), so a write-once cache left the
-                // badge blank after the first reset (2026-11-24, v6). Any drift is rewritten and marked
-                // changed, so it is networked; an unchanged tick writes nothing.
-                if (player.CompetitiveRankType != rankType || player.CompetitiveRanking != rankValue || player.CompetitiveWins != 111)
-                {
-                    player.CompetitiveWins = 111;
-                    player.CompetitiveRankType = rankType;
-                    player.CompetitiveRanking = rankValue;
-                    Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveWins");
-                    Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRankType");
-                    Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRanking");
-                }
-
-                // Holding TAB: the scoreboard shows every rank, not only the viewer's own
-                if (((ulong)player.Buttons & ScoreboardButton) != 0)
-                    filter.Add(player);
-            }
-
-            if (filter.Count > 0)
-            {
-                var msg = UserMessage.FromPartialName("CCSUsrMsg_ServerRankRevealAll");
-                msg.Send(filter);
+                if (player.IsValid && Pin(player, type, ranking))
+                    _fixedAfterThink++;
             }
         });
 
@@ -85,6 +71,92 @@ public class RanksFakeRank : BasePlugin
             _config = _api.LoadConfig<Config>("ranks_fakerank");
             _maxRank = _config.FakeRank.Max(f => f.Key);
         });
+    }
+
+    private void OnTick()
+    {
+        if (_api == null) return;
+
+        _targets.Clear();
+        Array.Clear(_seen);
+        var filter = new RecipientFilter();
+
+        foreach (var player in Utilities.GetPlayers()
+                     .Where(u => u is { IsValid: true, Connected: PlayerConnectedState.Connected, IsBot: false, IsHLTV: false }))
+        {
+            sbyte rankType;
+            int rankValue;
+
+            if (_config.Type is 0)
+            {
+                rankType = 11;
+                rankValue = _api.GetPlayerExperience(player);
+            }
+            else
+            {
+                rankType = 12;
+                var rank = _api.GetPlayerRank(player);
+
+                rankValue = _config.FakeRank[rank > _maxRank ? _maxRank : rank <= 0 ? 1 : rank];
+            }
+
+            _targets.Add((player, rankType, rankValue));
+            if (Pin(player, rankType, rankValue))
+                _fixedInTick++;
+
+            // The reveal is sent when TAB goes down, like the Metamod FakeRanks Reveal All. v1.0.3 sent it on
+            // every tick TAB was held (64 a second per player), and each one makes the client redraw every
+            // badge from whatever values it holds at that instant.
+            var slot = player.Slot;
+            if (slot is < 0 or >= MaxSlots) continue;
+
+            _seen[slot] = true;
+            var tab = ((ulong)player.Buttons & ScoreboardButton) != 0;
+            if (tab && !_tabDown[slot])
+                filter.Add(player);
+            _tabDown[slot] = tab;
+        }
+
+        // A slot nobody holds now starts released, so the next player in it gets a reveal on their first TAB
+        for (var i = 0; i < MaxSlots; i++)
+        {
+            if (!_seen[i]) _tabDown[i] = false;
+        }
+
+        if (filter.Count > 0)
+        {
+            var msg = UserMessage.FromPartialName("CCSUsrMsg_ServerRankRevealAll");
+            msg.Send(filter);
+        }
+
+        if (DateTime.UtcNow >= _nextReport)
+        {
+            if (_fixedInTick + _fixedAfterThink > 0)
+                Logger.LogInformation("[FakeRank] game resets overwritten in the last minute: {InTick} in OnTick, {AfterThink} after entity think",
+                    _fixedInTick, _fixedAfterThink);
+
+            _fixedInTick = _fixedAfterThink = 0;
+            _nextReport = DateTime.UtcNow.AddMinutes(1);
+        }
+    }
+
+    /// <summary>
+    /// Writes the badge when the controller holds anything else. Compared with what it holds NOW, not with what
+    /// was last written: the game resets these fields on its own, so a write-once cache left the badge blank
+    /// (2026-11-24, v6). Returns whether anything had to be written.
+    /// </summary>
+    private static bool Pin(CCSPlayerController player, sbyte rankType, int rankValue)
+    {
+        if (player.CompetitiveRankType == rankType && player.CompetitiveRanking == rankValue && player.CompetitiveWins == Wins)
+            return false;
+
+        player.CompetitiveWins = Wins;
+        player.CompetitiveRankType = rankType;
+        player.CompetitiveRanking = rankValue;
+        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveWins");
+        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRankType");
+        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRanking");
+        return true;
     }
 }
 
