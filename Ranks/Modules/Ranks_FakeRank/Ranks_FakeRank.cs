@@ -31,7 +31,7 @@ public class RanksFakeRank : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "[Ranks] Fake Rank";
-    public override string ModuleVersion => "v1.0.7";
+    public override string ModuleVersion => "v1.0.8";
 
     private Config _config;
     private IRanksApi? _api;
@@ -97,11 +97,16 @@ public class RanksFakeRank : BasePlugin
             _targets.Clear();
         });
 
-        // Loaded on a running server (restart, hot reload): everyone already on gets their connect reveal
-        foreach (var player in HumanPlayers())
+        // Loaded on a running server (hot reload): everyone already on gets their connect reveal. Only then -
+        // at server start there are no players yet, and asking for them throws "Global Variables not
+        // initialized yet" (v1.0.7, which then skipped the reload command below).
+        if (hotReload)
         {
-            if (player.Slot is >= 0 and < MaxSlots)
-                _revealDue[player.Slot] = DateTime.UtcNow + RevealDelay;
+            foreach (var player in HumanPlayers())
+            {
+                if (player.Slot is >= 0 and < MaxSlots)
+                    _revealDue[player.Slot] = DateTime.UtcNow + RevealDelay;
+            }
         }
 
         AddCommand("css_fakerank_reload", "", (player, info) =>
