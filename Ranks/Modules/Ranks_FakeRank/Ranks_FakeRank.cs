@@ -11,31 +11,44 @@ using RanksApi;
 
 namespace Ranks_FakeRank;
 
+/// <summary>
+/// The scoreboard badge from the Ranks level.
+///
+/// <para><b>Write.</b> The game resets the three competitive fields constantly while players are on (up to
+/// ~6000 times a minute on a 10-player server, with or without SetStateChanged - v1.0.6's log), most of it
+/// during entity think, which runs after OnTick. So the badge is checked in OnTick and again after entity
+/// think, and written plus marked changed only when the controller holds anything else. That keeps ours as
+/// the last value before every snapshot (v1.0.4: 0-9 drifts a minute were left for OnTick to fix).</para>
+///
+/// <para><b>Reveal.</b> No reveal is sent on TAB any more: every CCSUsrMsg_ServerRankRevealAll makes the
+/// client repaint the badges, so a reveal on each TAB press was the 1-2 frame flicker on every scoreboard
+/// open (2026-11-25/26). A player is revealed once, about a second after they connect, and everyone again
+/// on round_prestart. The Metamod FakeRanks Reveal All sends one on every TAB press too, so it has to be
+/// off on servers that run this module.</para>
+/// </summary>
 [MinimumApiVersion(260)]
 public class RanksFakeRank : BasePlugin
 {
     public override string ModuleAuthor => "thesamefabius";
     public override string ModuleName => "[Ranks] Fake Rank";
-    public override string ModuleVersion => "v1.0.6";
+    public override string ModuleVersion => "v1.0.7";
 
     private Config _config;
     private IRanksApi? _api;
     private int _maxRank;
 
-    /// <summary>IN_SCORE (1 << 33): upstream checked Buttons.ToString() for its digits, 8589934592.</summary>
-    private const ulong ScoreboardButton = 1UL << 33;
-
     private const int Wins = 111;
     private const int MaxSlots = 65;
+    private static readonly TimeSpan RevealDelay = TimeSpan.FromSeconds(1);
 
-    /// <summary>Whether each slot held TAB last tick: the reveal goes out on the press, like the Metamod FakeRanks Reveal All.</summary>
-    private readonly bool[] _tabDown = new bool[MaxSlots];
-    private readonly bool[] _seen = new bool[MaxSlots];
+    /// <summary>This tick's players and the badge each must show, filled in OnTick, re-pinned after entity think.</summary>
+    private readonly List<(CCSPlayerController Player, sbyte Type, int Ranking)> _targets = new(MaxSlots);
 
-    // How often the controller held anything but our badge when OnTick came round, logged once a minute.
-    // v1.0.4 counted ~5000 a minute on a 10-player server while it called SetStateChanged; this shows
-    // whether the game still fights the badge without it.
-    private int _drift;
+    /// <summary>When each slot's connect reveal is due; null = nothing pending (sent, or nobody there).</summary>
+    private readonly DateTime?[] _revealDue = new DateTime?[MaxSlots];
+
+    // How often the game's values had to be overwritten, logged once a minute.
+    private int _fixedInTick, _fixedAfterThink;
     private DateTime _nextReport = DateTime.UtcNow.AddMinutes(1);
 
     public override void OnAllPluginsLoaded(bool hotReload)
@@ -47,6 +60,49 @@ public class RanksFakeRank : BasePlugin
         _maxRank = _config.FakeRank.Max(f => f.Key);
 
         RegisterListener<Listeners.OnTick>(OnTick);
+        RegisterListener<Listeners.OnServerPostEntityThink>(() =>
+        {
+            foreach (var (player, type, ranking) in _targets)
+            {
+                if (player.IsValid && Pin(player, type, ranking))
+                    _fixedAfterThink++;
+            }
+        });
+
+        RegisterEventHandler<EventPlayerConnectFull>((@event, _) =>
+        {
+            var player = @event.Userid;
+            if (player is { IsValid: true, IsBot: false, IsHLTV: false } && player.Slot is >= 0 and < MaxSlots)
+                _revealDue[player.Slot] = DateTime.UtcNow + RevealDelay;
+            return HookResult.Continue;
+        });
+
+        RegisterEventHandler<EventPlayerDisconnect>((@event, _) =>
+        {
+            var player = @event.Userid;
+            if (player != null && player.Slot is >= 0 and < MaxSlots)
+                _revealDue[player.Slot] = null;
+            return HookResult.Continue;
+        });
+
+        RegisterEventHandler<EventRoundPrestart>((_, _) =>
+        {
+            RevealTo(HumanPlayers().ToList());
+            return HookResult.Continue;
+        });
+
+        RegisterListener<Listeners.OnMapStart>(_ =>
+        {
+            Array.Clear(_revealDue);
+            _targets.Clear();
+        });
+
+        // Loaded on a running server (restart, hot reload): everyone already on gets their connect reveal
+        foreach (var player in HumanPlayers())
+        {
+            if (player.Slot is >= 0 and < MaxSlots)
+                _revealDue[player.Slot] = DateTime.UtcNow + RevealDelay;
+        }
 
         AddCommand("css_fakerank_reload", "", (player, info) =>
         {
@@ -57,15 +113,18 @@ public class RanksFakeRank : BasePlugin
         });
     }
 
+    private static IEnumerable<CCSPlayerController> HumanPlayers() =>
+        Utilities.GetPlayers().Where(u => u is { IsValid: true, Connected: PlayerConnectedState.Connected, IsBot: false, IsHLTV: false });
+
     private void OnTick()
     {
         if (_api == null) return;
 
-        Array.Clear(_seen);
-        var filter = new RecipientFilter();
+        _targets.Clear();
+        var now = DateTime.UtcNow;
+        List<CCSPlayerController>? due = null;
 
-        foreach (var player in Utilities.GetPlayers()
-                     .Where(u => u is { IsValid: true, Connected: PlayerConnectedState.Connected, IsBot: false, IsHLTV: false }))
+        foreach (var player in HumanPlayers())
         {
             sbyte rankType;
             int rankValue;
@@ -83,47 +142,61 @@ public class RanksFakeRank : BasePlugin
                 rankValue = _config.FakeRank[rank > _maxRank ? _maxRank : rank <= 0 ? 1 : rank];
             }
 
-            // v1.0.6 = upstream's write again: the fields every tick, and NO SetStateChanged. Upstream ran
-            // like this for months with steady badges. v1.0.2-v1.0.5 (2026-11-24/25) flagged the fields
-            // changed, and from then on the game reset them ~90 times a second and the badges flickered;
-            // the 11-24 "only the tag" report came while the Metamod reveal was switched off after the
-            // crash, not from this write.
-            if (player.CompetitiveWins != Wins || player.CompetitiveRankType != rankType || player.CompetitiveRanking != rankValue)
-            {
-                _drift++;
-                player.CompetitiveWins = Wins;
-                player.CompetitiveRankType = rankType;
-                player.CompetitiveRanking = rankValue;
-            }
+            _targets.Add((player, rankType, rankValue));
+            if (Pin(player, rankType, rankValue))
+                _fixedInTick++;
 
             var slot = player.Slot;
-            if (slot is < 0 or >= MaxSlots) continue;
-
-            _seen[slot] = true;
-            var tab = ((ulong)player.Buttons & ScoreboardButton) != 0;
-            if (tab && !_tabDown[slot])
-                filter.Add(player);
-            _tabDown[slot] = tab;
+            if (slot is >= 0 and < MaxSlots && _revealDue[slot] is { } at && now >= at)
+            {
+                _revealDue[slot] = null;
+                (due ??= new List<CCSPlayerController>()).Add(player);
+            }
         }
 
-        // A slot nobody holds now starts released, so the next player in it gets a reveal on their first TAB
-        for (var i = 0; i < MaxSlots; i++)
+        if (due != null)
+            RevealTo(due);
+
+        if (now >= _nextReport)
         {
-            if (!_seen[i]) _tabDown[i] = false;
-        }
+            if (_fixedInTick + _fixedAfterThink > 0)
+                Logger.LogInformation("[FakeRank] game resets overwritten in the last minute: {InTick} in OnTick, {AfterThink} after entity think",
+                    _fixedInTick, _fixedAfterThink);
 
-        if (filter.Count > 0)
-        {
-            var msg = UserMessage.FromPartialName("CCSUsrMsg_ServerRankRevealAll");
-            msg.Send(filter);
+            _fixedInTick = _fixedAfterThink = 0;
+            _nextReport = now.AddMinutes(1);
         }
+    }
 
-        if (DateTime.UtcNow >= _nextReport)
-        {
-            Logger.LogInformation("[FakeRank] badges found changed by the game in the last minute: {Drift}", _drift);
-            _drift = 0;
-            _nextReport = DateTime.UtcNow.AddMinutes(1);
-        }
+    private static void RevealTo(List<CCSPlayerController> players)
+    {
+        if (players.Count == 0) return;
+
+        var filter = new RecipientFilter();
+        foreach (var player in players)
+            filter.Add(player);
+
+        var msg = UserMessage.FromPartialName("CCSUsrMsg_ServerRankRevealAll");
+        msg.Send(filter);
+    }
+
+    /// <summary>
+    /// Writes the badge when the controller holds anything else, and only then marks the fields changed.
+    /// Compared with what it holds NOW, not with what was last written: the game resets these fields on its
+    /// own, so a write-once cache left the badge blank (2026-11-24, v1.0.2). Returns whether it wrote.
+    /// </summary>
+    private static bool Pin(CCSPlayerController player, sbyte rankType, int rankValue)
+    {
+        if (player.CompetitiveRankType == rankType && player.CompetitiveRanking == rankValue && player.CompetitiveWins == Wins)
+            return false;
+
+        player.CompetitiveWins = Wins;
+        player.CompetitiveRankType = rankType;
+        player.CompetitiveRanking = rankValue;
+        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveWins");
+        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRankType");
+        Utilities.SetStateChanged(player, "CCSPlayerController", "m_iCompetitiveRanking");
+        return true;
     }
 }
 
